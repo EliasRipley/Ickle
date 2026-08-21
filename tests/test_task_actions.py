@@ -100,7 +100,7 @@ class DefaultStreamMaxCharsTests(unittest.TestCase):
 
     def test_bounded_by_a_ceiling_for_very_large_runs(self):
         huge = _default_stream_max_chars(steps=10_000_000, batch_size=64, block_size=2048)
-        self.assertLessEqual(huge, 120_000_000)
+        self.assertLessEqual(huge, 40_000_000)
 
     def test_falls_back_to_reasonable_batch_and_block_when_unset(self):
         # batch_size/block_size of 0 means "let the server auto-derive them" --

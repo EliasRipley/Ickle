@@ -1795,7 +1795,15 @@ def _run_promotion_check_after_graceful_stop(
 _STREAM_CHARS_PER_TOKEN_ESTIMATE = 4
 _STREAM_WASTE_FACTOR = 1.8  # rows skipped by the <80-char filter (or --stream-filter) are read but discarded
 _STREAM_MAX_CHARS_FLOOR = 2_000_000  # never below the previous flat default
-_STREAM_MAX_CHARS_CEILING = 120_000_000  # bounds how much a very large step count implies downloading
+_STREAM_MAX_CHARS_CEILING = 40_000_000  # bounds how much a very large step count implies downloading
+# Confirmed live at 120M: streaming a Hugging Face dataset without an
+# HF_TOKEN is meaningfully throttled ("unauthenticated requests... enable
+# higher rate limits and faster downloads"), and this ceiling used to sit
+# well past where that throttling starts to matter, turning "how much text
+# should this run see" into a very long, occasionally failing streaming
+# phase in practice, not just a bigger number. 40M is comfortably past
+# every run size that actually worked reliably tonight; raise it back up
+# once HF_TOKEN is configured (see README's environment variables table).
 
 
 def _default_stream_max_chars(steps: int, batch_size: int, block_size: int) -> int:
