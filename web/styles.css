@@ -557,6 +557,12 @@ html, body {
   color: var(--text);
 }
 
+.consolidation-subsection {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
 .epistemic-sources {
   display: flex;
   flex-wrap: wrap;

@@ -435,6 +435,15 @@
         <p id="commons-summary" class="hint-text">Loading...</p>
         <div id="commons-events-list" class="tasks-list"></div>
         <p id="commons-events-empty" class="hint-text" hidden>No peer reviews received yet.</p>
+
+        <div class="consolidation-subsection">
+          <p class="hint-text"><strong>From correction to model:</strong> a correction above normally only nudges one future answer. Every guarded training step (Training tab, or the button below) also folds your own adopted corrections into the actual model as extra-weighted training examples, gated by the same anti-forgetting checks as any other training run -- so a correction can outlive the conversation it came from, under your control, not just a company's.</p>
+          <p id="consolidation-summary" class="hint-text">Loading...</p>
+          <div class="commons-actions">
+            <button id="consolidation-run-btn" type="button">Consolidate corrections now</button>
+            <span id="consolidation-status" class="hint-text"></span>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -147,16 +147,46 @@ agreement to reject an obvious textual outlier before placing a candidate in
 the existing continual-learning promotion pipeline, but conformity does not
 bootstrap reputation.
 
+## From correction to model
+
+Everything above changes what one future answer says, through
+`context_for_prompt()` — a correction lives as long as the topic keeps
+coming up, but never actually changes the model, so it carries less durable
+weight than an ordinary line of scraped conversation log fed into training.
+That is backwards for the highest-trust signal Ickle has: an explicit,
+signed, local human judgement.
+
+`src/verified_corrections.py` closes that gap. It reads the owner's own
+active `correct`/`adopt` events (never an un-adopted peer review — the same
+`local_only` boundary `context_for_prompt()` already enforces) and turns each
+into an oversampled `User:`/`Ickle:` training pair. Every
+`continual_guard_step` — whether triggered from the Training tab, the
+Control room's **Consolidate corrections now** button under Epistemic
+Commons, or the existing auto-pipeline — folds this corpus in alongside the
+usual conversation/smart/focus corpora (`auto_include_verified_corrections`,
+on by default), so a correction can become part of the model itself, not
+just a patch layered on top of it.
+
+This still goes through the same anti-forgetting promotion gate as any other
+training step (`src/continual_guard.py`): a bad correction can fail to
+promote just like a bad conversation pair can, and the owner's adoption
+decision remains the only thing that puts a claim in scope for this at all —
+peer conformity still never does. `GET /api/consolidation/status` reports how
+many corrections are currently eligible.
+
 ## Code map
 
 - `src/epistemics.py`: deterministic candidate-claim extraction, evidence
   linking, answer maps, and swarm collective views.
 - `src/federated/knowledge_commons.py`: signed event schema, SQLite event set,
   convergence, local prompt context, adoption, and peer sync.
+- `src/verified_corrections.py`: turns adopted corrections into an
+  oversampled training corpus for `continual_guard_step` (see "From
+  correction to model" above).
 - `src/federated/swarm.py`: peer HTTP transport.
 - `src/serve_web.py`: answer-map generation and local-review endpoint.
-- `src/serve_control.py`: commons status/sync/adoption and human-governed peer
-  trust endpoints.
+- `src/serve_control.py`: commons status/sync/adoption, consolidation status,
+  and human-governed peer trust endpoints.
 - `web/app.js`, `web/index.html`, `web/styles.css`: complete human interface.
 
 ## Known limits and honest next experiments
@@ -168,9 +198,14 @@ bootstrap reputation.
   inference. “Related sources” must never be renamed “verified”.
 - Ed25519 proves event integrity and key continuity, not that one human owns
   only one key. The commons deliberately avoids one-peer-one-vote claims.
-- Human review can itself be wrong. Conflicts are preserved for this reason.
+- Human review can itself be wrong. Conflicts are preserved for this reason,
+  and consolidation relies on the same anti-forgetting promotion gate as any
+  other training step rather than trusting corrections unconditionally.
 - Shared-event sync is explicit and bounded to configured peers; background
   gossip and pagination beyond the newest bounded batch remain future work.
+- Consolidation oversamples by a fixed multiplier rather than weighting by
+  how many independent peers converged on a correction, or by recency; a
+  smarter weighting scheme is future work.
 - A stronger optional uncertainty mode could sample multiple independent
   generations and cluster meanings, but must expose its compute cost and avoid
   delaying every answer by default.

@@ -109,7 +109,7 @@ connectivity necessarily does. Chats, prompts, private reviews and model bytes
 are not stored in the DHT. See [Public Ickle swarm](docs/PUBLIC_SWARM.md) for
 the protocol, NAT behaviour, threat model, and honest limitations.
 
-Every non-empty answer can also expose an **answer map**: deterministic candidate claims, related retrieved sources, unresolved claims, and signed human reviews. You can support, dispute, or correct one claim without retraining the whole model. Reviews remain local unless you explicitly share that individual event; peer reviews preserve conflicts and cannot steer your Ickle until you adopt one. See [Epistemic Commons](docs/EPISTEMIC_COMMONS.md).
+Every non-empty answer can also expose an **answer map**: deterministic candidate claims, related retrieved sources, unresolved claims, and signed human reviews. You can support, dispute, or correct one claim right away, with no immediate retraining required. Reviews remain local unless you explicitly share that individual event; peer reviews preserve conflicts and cannot steer your Ickle until you adopt one. Your own adopted corrections also feed, oversampled and still promotion-gated, into every guarded continual-learning step, so a correction can outlive the conversation it came from and become part of the model itself. See [Epistemic Commons](docs/EPISTEMIC_COMMONS.md).
 
 ## DPO preference alignment
 

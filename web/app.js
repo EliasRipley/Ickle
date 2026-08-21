@@ -2258,6 +2258,7 @@ async function refreshNetworkTab() {
 
   await refreshCodistillPanel();
   await refreshCommonsPanel();
+  await refreshConsolidationPanel();
 }
 
 // --- Peer teaching / co-distillation ---------------------------------------
@@ -2471,6 +2472,41 @@ if (commonsSyncBtn) {
       if (status) status.textContent = err.message || "Couldn't sync shared reviews.";
     } finally {
       commonsSyncBtn.disabled = false;
+    }
+  });
+}
+
+async function refreshConsolidationPanel() {
+  const summary = $("consolidation-summary");
+  if (!summary) return;
+  try {
+    const data = await controlApi("/api/consolidation/status");
+    const n = data.eligible_corrections || 0;
+    summary.textContent =
+      n > 0
+        ? `${n} adopted correction(s) ready to be folded into the next training step.`
+        : "No adopted corrections yet -- correct or adopt a claim above to build this up.";
+  } catch {
+    summary.textContent = "Couldn't load consolidation status.";
+  }
+}
+
+const consolidationRunBtn = $("consolidation-run-btn");
+if (consolidationRunBtn) {
+  consolidationRunBtn.addEventListener("click", async () => {
+    const status = $("consolidation-status");
+    consolidationRunBtn.disabled = true;
+    if (status) status.textContent = "Queuing a guarded training step -- watch it under Background tasks.";
+    try {
+      await controlApi("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ task_type: "continual_guard_step", payload: {} }),
+      });
+      if (status) status.textContent = "Queued. Corrections are included automatically.";
+    } catch (err) {
+      if (status) status.textContent = err.message || "Couldn't queue consolidation.";
+    } finally {
+      consolidationRunBtn.disabled = false;
     }
   });
 }

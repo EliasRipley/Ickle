@@ -1358,6 +1358,20 @@ class ControlRuntime:
         )
         return {"adopted": True, "event": event, "commons": self._chat_runtime.epistemic_ledger().summary()}
 
+    def get_consolidation_status(self) -> dict[str, Any]:
+        """How many of the owner's own adopted Epistemic Commons corrections
+        are eligible to be folded into the next continual-guard training
+        step (see src/verified_corrections.py). This is always-on by default
+        -- every continual_guard_step task run already includes them -- this
+        endpoint just makes that otherwise-invisible pipeline stage visible,
+        the same way get_codistill_status() surfaces trust without a round
+        needing to be running."""
+        from src.verified_corrections import DEFAULT_CORRECTIONS_CORPUS, verified_corrections_status
+
+        status = verified_corrections_status()
+        status["corpus_path"] = DEFAULT_CORRECTIONS_CORPUS
+        return status
+
     def get_contribution_status(self) -> dict[str, Any]:
         """Seed:peer contribution ledger summary (torrent-ratio style: how much
         this device has given the network -- training rounds completed,
@@ -2336,6 +2350,9 @@ class ControlHandler(IckleHTTPHandler):
         if parsed.path == "/api/commons/status":
             self._send_json(200, self.runtime.get_commons_status())
             return
+        if parsed.path == "/api/consolidation/status":
+            self._send_json(200, self.runtime.get_consolidation_status())
+            return
         if parsed.path == "/api/contribution/status":
             self._send_json(200, self.runtime.get_contribution_status())
             return
@@ -2610,7 +2627,7 @@ def main():
         "/api/tasks, /api/tasks/infer, /api/memory/summary, /api/memory/facts, /api/memory/context, "
         "/api/memory/export, /api/memory/export/save, /api/memory/search, /api/memory/clear, "
         "/api/swarm/join, /api/swarm/leave, /api/swarm/peers/add, /api/swarm/peers/remove, /api/swarm/ask, /api/swarm/feedback, "
-        "/api/commons/status, /api/commons/sync, /api/commons/adopt, "
+        "/api/commons/status, /api/commons/sync, /api/commons/adopt, /api/consolidation/status, "
         "/api/research/sessions, /api/research/find, "
         "/api/programs/research-train, /api/open-dataset-ingest, /api/maintenance/model, "
         "/api/maintenance/training, /api/maintenance/data, /api/workspace-check, "

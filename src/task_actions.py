@@ -22,6 +22,7 @@ from src.build_clean_corpus import build_corpus
 from src.build_smart_corpus import build_smart_corpus
 from src.conversation_focus import build_focus_corpus_file, merge_dialog_corpora
 from src.continual_guard import run_guarded_step
+from src.verified_corrections import build_verified_corrections_corpus_file
 from src.dynamic_web_reader import read_url_dynamic
 from src.evidence_policy import (
     claim_signature,
@@ -2141,6 +2142,21 @@ def run_continual_guard_task(payload: dict[str, Any], progress: ProgressCb) -> d
         if int(focus_stats.get("written_pairs", 0)) > 0:
             corpora.append(str(focus_stats.get("out_path", focus_corpus_path)))
 
+    auto_include_verified_corrections = bool(payload.get("auto_include_verified_corrections", True))
+    verified_corrections_path = str(
+        payload.get("verified_corrections_path") or "data/continual/verified_corrections.txt"
+    ).strip()
+    verified_stats: dict[str, Any] | None = None
+    if auto_include_verified_corrections and verified_corrections_path:
+        progress("Consolidating verified Epistemic Commons corrections")
+        verified_stats = build_verified_corrections_corpus_file(
+            out_path=verified_corrections_path,
+            oversample=max(1, int(payload.get("verified_correction_oversample", 3))),
+            max_pairs=max(0, int(payload.get("verified_corrections_max_pairs", 900))),
+        )
+        if int(verified_stats.get("written_pairs", 0)) > 0:
+            corpora.append(str(verified_stats.get("out_path", verified_corrections_path)))
+
     normalized_corpora: list[str] = []
     seen_corpora: set[str] = set()
     for path in corpora:
@@ -2266,6 +2282,7 @@ def run_continual_guard_task(payload: dict[str, Any], progress: ProgressCb) -> d
         "mixing": report.get("mixing", {}),
         "new_corpus_used": new_corpus,
         "focus_corpus": focus_stats or {},
+        "verified_corrections": verified_stats or {},
         "merged_new_corpus": merge_stats or {},
         "learned_summary": learned_summary,
     }
