@@ -59,9 +59,9 @@ def run_tidy():
 
 def run_bootstrap():
     profile = input("Profile [laptop]: ").strip() or "laptop"
-    steps = input("Training steps [3000]: ").strip() or "3000"
+    steps = input("Training steps [2000]: ").strip() or "2000"
     subprocess.run(
-        _cmd("-m", "scripts.bootstrap_fresh", "--profile", profile, "--steps", steps),
+        _cmd("-m", "scripts.init_language_model", "--profile", profile, "--steps", steps),
         cwd=str(ROOT),
     )
 
@@ -95,7 +95,7 @@ def show_menu():
         "1": ("Start web UI (chat, port 8787)", run_web),
         "2": ("Start control API (tasks, port 8788)", run_control),
         "3": ("Chat (CLI)", run_chat),
-        "4": ("Bootstrap fresh model", run_bootstrap),
+        "4": ("Initialize fresh model (streamed real-text corpus)", run_bootstrap),
         "5": ("Continuous AI teacher training", run_continuous),
         "6": ("Run preflight check", run_preflight),
         "7": ("Tidy workspace", run_tidy),

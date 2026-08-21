@@ -1,5 +1,5 @@
 """Initialize a fresh language-first Ickle model.
-Trains from scratch using the comprehensive English bootstrap corpus
+Trains from scratch on a streamed real-text corpus (smollm-corpus)
 to create a model that has basic English language understanding.
 
 Usage:
@@ -22,7 +22,6 @@ def main():
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--batch-size", type=int, default=0, help="Batch size (0 = profile default)")
     parser.add_argument("--grad-accum", type=int, default=4, help="Gradient accumulation steps")
-    parser.add_argument("--bootstrap-repeat", type=int, default=500, help="Repeat bootstrap text")
     parser.add_argument("--eval-every", type=int, default=200, help="Evaluate every N steps")
     parser.add_argument("--checkpoint-every", type=int, default=500, help="Save checkpoint every N steps")
     parser.add_argument("--warmup-steps", type=int, default=200, help="LR warmup steps")
@@ -52,8 +51,6 @@ def main():
         "--checkpoint-every", str(args.checkpoint_every),
         "--grad-accum-steps", str(args.grad_accum),
         "--seed", str(args.seed),
-        "--bootstrap-english",
-        "--bootstrap-repeat", str(args.bootstrap_repeat),
         "--best-model-path", str(out_path).replace(".pt", "_best.pt"),
         "--save-best-on-interrupt",
     ]

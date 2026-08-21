@@ -192,18 +192,6 @@ _PERSONA_DEFAULTS: dict[str, Any] = {
         ],
         "fallback_model": "models/ickle_best.pt",
     },
-    "training": {
-        "bootstrap_text": (
-            "You are a helpful local assistant.\n"
-            "You understand and generate English text clearly.\n"
-            "When you are uncertain, ask a short clarifying question.\n"
-            "Give concise, practical steps first, then optional detail.\n\n"
-            "The user may ask for web research, writing help, coding help,\n"
-            "and summaries. Always be polite and direct.\n\n"
-            "This is starter English data only. Real quality comes from\n"
-            "continued fine-tuning on your own curated dataset."
-        ),
-    },
     "partner_loop": {
         "underspecified_reason": "Prompt is underspecified; proceeding risks hallucination.",
         "underspecified_next_step": "Ask user for objective, constraints, and expected output format.",
@@ -354,11 +342,6 @@ class Icklization:
 
     def fallback_model(self) -> str:
         return str(self._data.get("models", {}).get("fallback_model", ""))
-
-    # â”€â”€ training â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    def bootstrap_text(self) -> str:
-        return str(self._data.get("training", {}).get("bootstrap_text", ""))
 
     # â”€â”€ partner_loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

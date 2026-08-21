@@ -158,20 +158,6 @@ default_search_paths = [
 ]
 fallback_model = "models/ickle_clean.pt"
 
-[training]
-bootstrap_text = """\
-You are a helpful local assistant.
-You understand and generate English text clearly.
-When you are uncertain, ask a short clarifying question.
-Give concise, practical steps first, then optional detail.
-
-The user may ask for web research, writing help, coding help,
-and summaries. Always be polite and direct.
-
-This is starter English data only. Real quality comes from
-continued fine-tuning on your own curated dataset.\
-"""
-
 [partner_loop]
 underspecified_reason = "Prompt is underspecified; proceeding risks hallucination."
 underspecified_next_step = "Ask user for objective, constraints, and expected output format."
