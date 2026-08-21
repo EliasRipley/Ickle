@@ -3,7 +3,41 @@ import unittest
 from unittest import mock
 from urllib.error import HTTPError
 
-from src.task_actions import _looks_useful_fact, _request_json, _wiki_url_from_title, infer_task_from_instruction, run_task
+from src.task_actions import (
+    _default_stream_max_chars,
+    _looks_useful_fact,
+    _request_json,
+    _wiki_url_from_title,
+    infer_task_from_instruction,
+    run_task,
+)
+
+
+class DefaultStreamMaxCharsTests(unittest.TestCase):
+    def test_scales_up_with_more_steps(self):
+        small = _default_stream_max_chars(steps=200, batch_size=22, block_size=256)
+        large = _default_stream_max_chars(steps=10000, batch_size=22, block_size=256)
+        self.assertLess(small, large)
+
+    def test_never_below_the_previous_flat_floor(self):
+        tiny = _default_stream_max_chars(steps=1, batch_size=1, block_size=1)
+        self.assertGreaterEqual(tiny, 2_000_000)
+
+    def test_bounded_by_a_ceiling_for_very_large_runs(self):
+        huge = _default_stream_max_chars(steps=10_000_000, batch_size=64, block_size=2048)
+        self.assertLessEqual(huge, 120_000_000)
+
+    def test_falls_back_to_reasonable_batch_and_block_when_unset(self):
+        # batch_size/block_size of 0 means "let the server auto-derive them" --
+        # this must not divide by zero or collapse to the floor for a normal
+        # step count, since that's exactly the bug being fixed (every run,
+        # not just ones with explicit overrides, was capped at ~2MB).
+        result = _default_stream_max_chars(steps=1200, batch_size=0, block_size=0)
+        self.assertGreater(result, 2_000_000)
+
+    def test_1200_steps_is_meaningfully_larger_than_the_old_flat_default(self):
+        result = _default_stream_max_chars(steps=1200, batch_size=22, block_size=256)
+        self.assertGreater(result, 2_000_000 * 2)
 
 
 class TaskActionTests(unittest.TestCase):

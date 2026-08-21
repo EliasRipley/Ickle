@@ -1457,17 +1457,23 @@ function updateTrainTargetVisibility() {
 function trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig, hfDatasetField) {
   // Plain-language source choices map to a couple of broad, safe presets --
   // no dataset IDs, hyperparameters, or file-format details shown to the user.
+  // stream_max_chars is deliberately omitted here: every source used to be
+  // hardcoded to the same flat 2,000,000 chars regardless of how many steps
+  // the run trained for, which meant even a long run only ever saw ~2MB of
+  // text and started repeating itself well before finishing. Leaving the key
+  // out lets the server derive a cap from the actual step count and
+  // architecture (task_actions._default_stream_max_chars), instead of a
+  // number disconnected from the run's real size.
   if (source === "wikipedia") {
-    return { stream_dataset: "HuggingFaceFW/fineweb", stream_field: "text", stream_max_chars: 2000000 };
+    return { stream_dataset: "HuggingFaceFW/fineweb", stream_field: "text" };
   }
   if (source === "conversations") {
-    return { stream_dataset: "OpenAssistant/oasst1", stream_field: "text", stream_max_chars: 2000000 };
+    return { stream_dataset: "OpenAssistant/oasst1", stream_field: "text" };
   }
   if (source === "hf_dataset") {
     const payload = {
       stream_dataset: hfDataset,
       stream_field: (hfDatasetField || "").trim() || "text",
-      stream_max_chars: 2000000,
     };
     if (hfDatasetConfig) payload.stream_config = hfDatasetConfig;
     return payload;

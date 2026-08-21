@@ -1748,6 +1748,28 @@ def _run_promotion_check_after_graceful_stop(
     }
 
 
+_STREAM_CHARS_PER_TOKEN_ESTIMATE = 4
+_STREAM_WASTE_FACTOR = 1.8  # rows skipped by the <80-char filter (or --stream-filter) are read but discarded
+_STREAM_MAX_CHARS_FLOOR = 2_000_000  # never below the previous flat default
+_STREAM_MAX_CHARS_CEILING = 120_000_000  # bounds how much a very large step count implies downloading
+
+
+def _default_stream_max_chars(steps: int, batch_size: int, block_size: int) -> int:
+    """A flat 2,000,000-char cap regardless of run size meant every streamed
+    run -- including the plain-language "General knowledge"/"Helpful
+    conversation examples" presets, not just custom Hugging Face datasets --
+    saw the same ~2MB of text no matter how many steps it trained for. That
+    is little enough to start repeating itself well before a real run
+    finishes. This scales the cap with how much data the run can plausibly
+    use (steps * batch * block, in estimated characters, with slack for rows
+    a length/relevance filter throws away), instead of a number disconnected
+    from the run's actual size."""
+    effective_batch = batch_size if batch_size > 0 else 22
+    effective_block = block_size if block_size > 0 else 512
+    raw = int(steps) * effective_batch * effective_block * _STREAM_CHARS_PER_TOKEN_ESTIMATE * _STREAM_WASTE_FACTOR
+    return max(_STREAM_MAX_CHARS_FLOOR, min(_STREAM_MAX_CHARS_CEILING, int(raw)))
+
+
 def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[str, Any]:
     data_path = str(payload.get("data_path", "")).strip()
     out_model = str(payload.get("out_model", "")).strip()
@@ -1833,7 +1855,7 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
         stream_template = str(payload.get("stream_template", "")).strip()
         if stream_template:
             cmd.extend(["--stream-template", stream_template])
-        stream_max = int(payload.get("stream_max_chars", 2000000))
+        stream_max = int(payload.get("stream_max_chars") or _default_stream_max_chars(steps, batch_size, block_size))
         cmd.extend(["--stream-max-chars", str(stream_max)])
         cmd.extend(["--tokenizer", tokenizer_kind])
         if tokenizer_kind == "sentencepiece" and spm_vocab_size > 0:
