@@ -1584,7 +1584,14 @@ if (trainStopBtn) {
     try {
       await controlApi(`/api/tasks/${activeTrainTaskId}/cancel`, { method: "POST" });
       refreshManagePanel();
-    } catch {}
+    } catch (err) {
+      // This button previously failed completely silently on error -- a
+      // real report of "the stop button doesn't work" traced back to
+      // exactly this: the request can fail (server unreachable, task
+      // already gone) with zero visible sign anything happened.
+      trainError.textContent = err.message || "Couldn't stop training -- try again.";
+      trainError.hidden = false;
+    }
   });
 }
 
@@ -1875,10 +1882,14 @@ function renderTasks(tasks) {
       cancelBtn.className = "task-cancel-btn";
       cancelBtn.textContent = "Cancel";
       cancelBtn.onclick = async () => {
+        cancelBtn.disabled = true;
         try {
           await controlApi(`/api/tasks/${t.task_id}/cancel`, { method: "POST" });
           refreshManagePanel();
-        } catch {}
+        } catch (err) {
+          cancelBtn.textContent = err.message || "Failed";
+          cancelBtn.disabled = false;
+        }
       };
       row.appendChild(cancelBtn);
     }
@@ -1934,6 +1945,7 @@ async function refreshModelsTab() {
       useBtn.textContent = isActive ? "In use" : "Use this";
       useBtn.disabled = isActive;
       useBtn.onclick = async () => {
+        useBtn.disabled = true;
         try {
           await api("/api/flags", { method: "POST", body: JSON.stringify({ current_model: m.path }) });
           // Persisting the flag alone isn't enough: the topbar model picker
@@ -1946,7 +1958,10 @@ async function refreshModelsTab() {
           modelSelect.value = m.path;
           await refreshModels();
           refreshModelsTab();
-        } catch {}
+        } catch (err) {
+          useBtn.textContent = err.message || "Failed";
+          useBtn.disabled = false;
+        }
       };
       row.appendChild(useBtn);
       list.appendChild(row);
@@ -2180,10 +2195,19 @@ const memoryForgetBtn = $("memory-forget-btn");
 if (memoryForgetBtn) {
   memoryForgetBtn.addEventListener("click", async () => {
     if (!confirm("This permanently deletes everything Ickle remembers about you. This cannot be undone. Continue?")) return;
+    const result = $("memory-forget-result");
+    memoryForgetBtn.disabled = true;
     try {
       await controlApi("/api/memory/clear", { method: "POST", body: JSON.stringify({}) });
+      if (result) result.textContent = "Done -- everything Ickle remembered has been deleted.";
       refreshMemoryTab();
-    } catch {}
+    } catch (err) {
+      // A destructive action that fails with zero feedback is the worst
+      // version of this bug: the confirm dialog told the person it worked.
+      if (result) result.textContent = err.message || "Couldn't clear memory -- nothing was deleted.";
+    } finally {
+      memoryForgetBtn.disabled = false;
+    }
   });
 }
 
@@ -2321,10 +2345,14 @@ async function refreshNetworkTab() {
       removeBtn.className = "danger-button";
       removeBtn.textContent = "Remove";
       removeBtn.addEventListener("click", async () => {
+        removeBtn.disabled = true;
         try {
           await controlApi("/api/swarm/peers/remove", { method: "POST", body: JSON.stringify({ address }) });
           refreshNetworkTab();
-        } catch {}
+        } catch (err) {
+          removeBtn.textContent = err.message || "Failed";
+          removeBtn.disabled = false;
+        }
       });
       row.appendChild(removeBtn);
       peersList.appendChild(row);
