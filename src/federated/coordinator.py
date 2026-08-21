@@ -144,11 +144,35 @@ class FederatedCoordinator:
             state = self._default_state()
         self._save_state(state)
         if not self.global_adapter_path.exists():
-            model, _ = load_base_with_lora(self.base_model_path, self.lora_cfg)
-            lora_state = get_lora_state_dict(model)
-            zero_state = {k: torch.zeros_like(v) for k, v in lora_state.items()}
-            torch.save(zero_state, self.global_adapter_path)
+            self._save_global_adapter(self._fresh_global_adapter())
+        else:
+            # Older coordinators zeroed both LoRA factors.  With A=0 and B=0,
+            # d(B@A)/dA and d(B@A)/dB are both zero, so clients could perform
+            # arbitrarily many nominal training steps without changing a
+            # single adapter parameter.  Repair that provably inert legacy
+            # state by restoring only LoRA-A's normal random initialization;
+            # LoRA-B stays zero, so the adapter still starts as an exact no-op.
+            existing = self._load_global_adapter()
+            if self._is_inert_adapter(existing):
+                seeded = self._fresh_global_adapter()
+                repaired = {key: value.clone() for key, value in existing.items()}
+                for key in repaired:
+                    if key.endswith(".lora_a"):
+                        repaired[key] = seeded[key].clone()
+                self._save_global_adapter(repaired)
         return state
+
+    def _fresh_global_adapter(self) -> dict[str, torch.Tensor]:
+        model, _ = load_base_with_lora(self.base_model_path, self.lora_cfg)
+        return get_lora_state_dict(model)
+
+    @staticmethod
+    def _is_inert_adapter(state: dict[str, torch.Tensor]) -> bool:
+        a_tensors = [value for key, value in state.items() if key.endswith(".lora_a")]
+        b_tensors = [value for key, value in state.items() if key.endswith(".lora_b")]
+        if not a_tensors or not b_tensors:
+            return False
+        return all(torch.count_nonzero(value).item() == 0 for value in a_tensors + b_tensors)
 
     def _save_state(self, payload: dict[str, Any]):
         tmp_path = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
@@ -429,29 +453,36 @@ class FederatedCoordinator:
             )
 
             current_adapter = self._load_global_adapter()
-            candidate_adapter = self.global_optimizer.step(current_adapter, agg_delta)
-            save_global_optimizer(self.global_optimizer, str(self.global_optimizer_path))
+            optimizer_state_before = self.global_optimizer.state_dict()
+            try:
+                candidate_adapter = self.global_optimizer.step(current_adapter, agg_delta)
 
-            eval_before = None
-            eval_after = None
-            accepted = True
-            eval_data_exists = bool(self.eval_data_path and Path(self.eval_data_path).exists())
-            if eval_data_exists:
-                eval_before = evaluate_adapter_loss(
-                    base_model_path=self.base_model_path,
-                    lora_cfg=self.lora_cfg,
-                    adapter_state=current_adapter,
-                    eval_data_path=self.eval_data_path,
-                    eval_iters=self.eval_iters,
-                )
-                eval_after = evaluate_adapter_loss(
-                    base_model_path=self.base_model_path,
-                    lora_cfg=self.lora_cfg,
-                    adapter_state=candidate_adapter,
-                    eval_data_path=self.eval_data_path,
-                    eval_iters=self.eval_iters,
-                )
-                accepted = bool(eval_after <= (eval_before + self.max_regression))
+                eval_before = None
+                eval_after = None
+                accepted = True
+                eval_data_exists = bool(self.eval_data_path and Path(self.eval_data_path).exists())
+                if eval_data_exists:
+                    eval_before = evaluate_adapter_loss(
+                        base_model_path=self.base_model_path,
+                        lora_cfg=self.lora_cfg,
+                        adapter_state=current_adapter,
+                        eval_data_path=self.eval_data_path,
+                        eval_iters=self.eval_iters,
+                    )
+                    eval_after = evaluate_adapter_loss(
+                        base_model_path=self.base_model_path,
+                        lora_cfg=self.lora_cfg,
+                        adapter_state=candidate_adapter,
+                        eval_data_path=self.eval_data_path,
+                        eval_iters=self.eval_iters,
+                    )
+                    accepted = bool(eval_after <= (eval_before + self.max_regression))
+            except Exception:
+                # A failed evaluation leaves the round open for retry.  Its
+                # unpromoted update must not remain hidden in memory and gain
+                # extra momentum when the retry calls step() again.
+                self.global_optimizer.load_state_dict(optimizer_state_before)
+                raise
 
             summary = {
                 "round_id": round_id,
@@ -466,7 +497,13 @@ class FederatedCoordinator:
 
             if accepted:
                 self._save_global_adapter(candidate_adapter)
+                save_global_optimizer(self.global_optimizer, str(self.global_optimizer_path))
                 summary["adapter_path"] = str(self.global_adapter_path)
+            else:
+                # Promotion gates apply to optimizer state as well as model
+                # weights; otherwise a rejected (possibly poisoned) direction
+                # influences every later round through momentum.
+                self.global_optimizer.load_state_dict(optimizer_state_before)
 
             active["status"] = "closed"
             active["closed_at_utc"] = _utc_now()

@@ -23,6 +23,23 @@ class FederatedAggregationTests(unittest.TestCase):
         self.assertEqual(meta["method"], "trimmed_mean")
         self.assertTrue(torch.allclose(agg["x"], torch.tensor([1.0, 1.0, 1.0])))
 
+    def test_default_small_round_actually_trims_an_outlier(self):
+        updates = [
+            ClientUpdate(client_id="a", num_examples=10, delta={"x": torch.tensor([1.0])}, metrics={}),
+            ClientUpdate(client_id="b", num_examples=10, delta={"x": torch.tensor([1.0])}, metrics={}),
+            ClientUpdate(client_id="z", num_examples=10, delta={"x": torch.tensor([100.0])}, metrics={}),
+        ]
+
+        agg, meta = aggregate_deltas(
+            updates,
+            method="trimmed_mean",
+            trim_ratio=0.1,
+            max_update_norm=1000.0,
+        )
+
+        self.assertEqual(meta["trimmed_per_tail"], 1)
+        self.assertTrue(torch.allclose(agg["x"], torch.tensor([1.0])))
+
     def test_weighted_avg_prefers_larger_client(self):
         updates = [
             ClientUpdate(client_id="small", num_examples=1, delta={"x": torch.tensor([0.0])}, metrics={}),

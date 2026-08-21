@@ -127,12 +127,22 @@ def load_training_text(
     }
 
 
-def _get_batch(data: torch.Tensor, block_size: int, batch_size: int) -> tuple[torch.Tensor, torch.Tensor]:
+def _get_batch(
+    data: torch.Tensor,
+    block_size: int,
+    batch_size: int,
+    *,
+    generator: torch.Generator | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     if len(data) <= block_size + 1:
         raise ValueError(
             f"Dataset too small for block_size={block_size}. Need > {block_size + 1} tokens, got {len(data)}"
         )
-    ix = torch.randint(len(data) - block_size - 1, (batch_size,))
+    ix = torch.randint(
+        len(data) - block_size - 1,
+        (batch_size,),
+        generator=generator,
+    )
     x = torch.stack([data[i : i + block_size] for i in ix])
     y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix])
     return x, y
@@ -233,6 +243,7 @@ def evaluate_adapter_loss(
     eval_iters: int = 12,
     batch_size: int = 12,
     torch_threads: int = 4,
+    eval_seed: int = 0,
 ) -> float:
     apply_cpu_thread_budget(torch_threads)
     model, ckpt = load_base_with_lora(base_model_path, lora_cfg)
@@ -252,9 +263,18 @@ def evaluate_adapter_loss(
     ids = tokenizer.encode(text)
     data = torch.tensor(ids, dtype=torch.long)
 
+    # Candidate and baseline evaluations must see the same examples.  Using
+    # the process-wide RNG independently for each model made the promotion
+    # decision partly a comparison between two random minibatch samples.
+    eval_generator = torch.Generator().manual_seed(int(eval_seed))
     losses: list[float] = []
     for _ in range(eval_iters):
-        xb, yb = _get_batch(data, block_size=model.cfg.block_size, batch_size=batch_size)
+        xb, yb = _get_batch(
+            data,
+            block_size=model.cfg.block_size,
+            batch_size=batch_size,
+            generator=eval_generator,
+        )
         with torch.no_grad():
             _, loss = model(xb, yb)
         losses.append(float(loss.item()))

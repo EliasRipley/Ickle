@@ -17,13 +17,18 @@ class GlobalOptimizerConfig:
 class GlobalOptimizer:
     """Server-side DiLoCo optimizer with Nesterov momentum.
 
-    The server aggregates client deltas (pseudo-gradients) and applies
-    a momentum-based outer-loop step instead of naive addition:
+    The server aggregates client model deltas and applies a momentum-based
+    outer-loop step instead of naive addition:
 
-        g_t     = aggregated_client_delta        (pseudo-gradient)
-        v_t     = beta * v_{t-1} + g_t            (velocity / momentum)
-        w_{t+1} = w_t - lr * (g_t + beta * v_t)  (Nesterov correction when nesterov=True)
-        w_{t+1} = w_t - lr * v_t                  (standard momentum when nesterov=False)
+        d_t     = mean(client_model - global_model)
+        v_t     = beta * v_{t-1} + d_t             (velocity / momentum)
+        w_{t+1} = w_t + lr * (d_t + beta * v_t)   (Nesterov correction when nesterov=True)
+        w_{t+1} = w_t + lr * v_t                   (standard momentum when nesterov=False)
+
+    Client updates use the conventional ``end_state - start_state`` delta.
+    Consequently the outer optimizer must *add* that direction.  Treating it
+    as a gradient and subtracting it would move the global adapter away from
+    every locally trained model.
 
     This is the core DiLoCo insight: 500× communication reduction via
     dual-optimizer (local AdamW + global momentum).
@@ -49,13 +54,13 @@ class GlobalOptimizer:
     def step(
         self,
         params: dict[str, torch.Tensor],
-        pseudo_grad: dict[str, torch.Tensor],
+        model_delta: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Apply one DiLoCo global optimizer step.
 
         Args:
             params: Current global adapter parameters.
-            pseudo_grad: Aggregated client delta (pseudo-gradient).
+            model_delta: Aggregated ``client_after - client_before`` delta.
 
         Returns:
             Updated parameters after momentum step.
@@ -66,14 +71,14 @@ class GlobalOptimizer:
 
         out: dict[str, torch.Tensor] = {}
         for key in params:
-            g = pseudo_grad.get(key, torch.zeros_like(params[key]))
+            delta = model_delta.get(key, torch.zeros_like(params[key]))
             prev_v = self.velocity.get(key, torch.zeros_like(params[key]))
-            v = beta * prev_v + g
+            v = beta * prev_v + delta
             self.velocity[key] = v
             if use_nesterov:
-                out[key] = params[key] - lr * (g + beta * v)
+                out[key] = params[key] + lr * (delta + beta * v)
             else:
-                out[key] = params[key] - lr * v
+                out[key] = params[key] + lr * v
         return out
 
 

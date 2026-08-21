@@ -49,9 +49,22 @@ def _weighted_average(updates: list[ClientUpdate]) -> dict[str, torch.Tensor]:
     return out
 
 
+def _trim_count(n: int, trim_ratio: float) -> int:
+    trim = int(n * max(0.0, min(0.49, trim_ratio)))
+    # The coordinator defaults to three clients and a 10% trim ratio.  Plain
+    # floor rounding made that configuration trim zero updates, silently
+    # reducing the advertised robust aggregation to an ordinary mean exactly
+    # when a small swarm is easiest to manipulate.  If trimming is enabled,
+    # conservatively remove at least one value per tail whenever three or more
+    # clients leave a median/mean to compute.
+    if trim == 0 and trim_ratio > 0.0 and n >= 3:
+        trim = 1
+    return min(trim, (n - 1) // 2)
+
+
 def _trimmed_mean(updates: list[ClientUpdate], trim_ratio: float) -> dict[str, torch.Tensor]:
     n = len(updates)
-    trim = int(n * max(0.0, min(0.49, trim_ratio)))
+    trim = _trim_count(n, trim_ratio)
     keys = updates[0].delta.keys()
     out: dict[str, torch.Tensor] = {}
     for key in keys:
@@ -148,4 +161,6 @@ def aggregate_deltas(
         "selected_client_ids": selected_ids,
         "update_norms": norms,
     }
+    if method_used == "trimmed_mean":
+        meta["trimmed_per_tail"] = _trim_count(len(selected), trim_ratio)
     return agg, meta
