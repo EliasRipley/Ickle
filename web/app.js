@@ -831,9 +831,12 @@ async function refreshStatus() {
 
 async function refreshModels() {
   try {
-    const data = await api("/api/models?limit=300&all=1");
+    // include_checkpoints=1: without it, a training run's own in-progress or
+    // just-stopped checkpoint (e.g. after a graceful "Stop training") never
+    // appears here at all -- there was no way to select and test it until
+    // its owning run finished and produced a plain, non-checkpoint file.
+    const data = await api("/api/models?limit=300&all=1&include_checkpoints=1");
     modelList = (data.models || [])
-      .filter((m) => !String(m.name || "").endsWith(".checkpoint.pt"))
       .sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0))
       .slice(0, 20);
 
@@ -1927,7 +1930,7 @@ async function refreshModelsTab() {
   const list = $("models-list");
   const empty = $("models-empty");
   try {
-    const data = await controlApi("/api/models?all=1&limit=100");
+    const data = await controlApi("/api/models?all=1&limit=100&include_checkpoints=1");
     const models = data.models || [];
     list.innerHTML = "";
     empty.hidden = models.length > 0;
@@ -1948,7 +1951,17 @@ async function refreshModelsTab() {
       }
       const meta = document.createElement("span");
       meta.className = "model-row-meta";
-      const when = m.updated_at ? new Date(m.updated_at * 1000).toLocaleDateString() : "";
+      // Date-only (no time) meant every model trained on the same day --
+      // which is exactly when you most need to tell them apart -- looked
+      // identical in this list, with no way to spot the newest one.
+      const when = m.updated_at
+        ? new Date(m.updated_at * 1000).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : "";
       meta.textContent = `${formatBytes(m.size_bytes)} · ${when}`;
       main.appendChild(name);
       main.appendChild(meta);
