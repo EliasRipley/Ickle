@@ -95,6 +95,8 @@ Beyond plain chat, the web UI has three opt-in toggles next to the prompt box:
 
 Responses containing fenced code blocks render as proper monospace blocks with a Copy button, not raw backticks.
 
+Every non-empty answer can also expose an **answer map**: deterministic candidate claims, related retrieved sources, unresolved claims, and signed human reviews. You can support, dispute, or correct one claim without retraining the whole model. Reviews remain local unless you explicitly share that individual event; peer reviews preserve conflicts and cannot steer your Ickle until you adopt one. See [Epistemic Commons](docs/EPISTEMIC_COMMONS.md).
+
 ## DPO preference alignment
 
 ```bash
@@ -134,6 +136,8 @@ python -m src.app infer report
 
 The same ratio is also visible in the web app's Manage → Sharing tab. See [docs/INFERENCE_SHARING.md](docs/INFERENCE_SHARING.md) for the protocol and trust model.
 
+Live swarm answers show claim-level common ground and distinct contributions rather than treating majority agreement as truth. Peer agreement does not automatically create reputation; your Helpful / Not helpful reviews update your own per-domain trust store.
+
 ## IDE / agent integration (MCP)
 
 Ickle can be summoned directly from an MCP-compatible IDE or agent tool (Claude Code, Cursor, etc.) instead of needing a browser tab — this is the standard way local tools integrate today; Ickle has no npm ecosystem and doesn't need one for this.
@@ -166,6 +170,7 @@ Exposes nine tools:
 | [docs/HEAVY_TRAINING_BLUEPRINT_2026.md](docs/HEAVY_TRAINING_BLUEPRINT_2026.md) | Honest next milestones toward stronger capability |
 | [docs/FEDERATED_MOBILE.md](docs/FEDERATED_MOBILE.md) | Mobile contributor API contract |
 | [docs/INFERENCE_SHARING.md](docs/INFERENCE_SHARING.md) | P2P inference sharing: protocol, trust model, seed:peer ratio |
+| [docs/EPISTEMIC_COMMONS.md](docs/EPISTEMIC_COMMONS.md) | Inspectable answer claims, local human corrections, conflict-preserving P2P review |
 | [docs/CONTINUAL_LEARNING_GUARD.md](docs/CONTINUAL_LEARNING_GUARD.md) | Catastrophic forgetting prevention |
 | [docs/ADDITIVE_KNOWLEDGE_MODULES.md](docs/ADDITIVE_KNOWLEDGE_MODULES.md) | Additive modular learning without overwriting the core model |
 | [docs/HONEST_CONTEXT_TRAINING_PACKAGE.md](docs/HONEST_CONTEXT_TRAINING_PACKAGE.md) | Behavior-focused SFT + DPO package |
@@ -258,6 +263,7 @@ The rest of this README is about what Ickle does and how to run it. This section
 - **Continual learning guard**: Compartmented mixing + promotion gates against forgetting
 - **Additive knowledge modules**: Train LoRA topic modules and compose them at inference time
 - **Research memory**: Persistent note-taking across training sessions
+- **Epistemic Commons**: Inspectable claim/evidence maps plus signed, local-by-default human review that can merge across peers without erasing disagreement
 - **Ollama teacher**: Generate SFT pairs from any Ollama model
 - **Federated training**: P2P swarm-based delta sharing with mobile clients
 - **Inference sharing**: peers donate spare compute to answer other users' prompts P2P, tracked via a local seed:peer contribution ratio (`infer serve`/`ask`/`report`)

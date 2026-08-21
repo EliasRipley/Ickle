@@ -61,17 +61,14 @@ class ControlRuntimeChatDelegationTests(unittest.TestCase):
              mock.patch("src.serve_web.generate_response", side_effect=fake_generate_response):
             result = runtime.run_chat({"prompt": "hi", "model": "models/does_not_exist.pt"})
 
-        self.assertEqual(
-            result,
-            {
-                "response": "hello",
-                "reasoning": "because",
-                "model": "models/does_not_exist.pt",
-                "confidence": 0.5,
-                "low_confidence": False,
-                "think_assessment": "fine",
-            },
-        )
+        self.assertEqual(result["response"], "hello")
+        self.assertEqual(result["reasoning"], "because")
+        self.assertEqual(result["model"], "models/does_not_exist.pt")
+        self.assertEqual(result["confidence"], 0.5)
+        self.assertFalse(result["low_confidence"])
+        self.assertEqual(result["think_assessment"], "fine")
+        self.assertEqual(result["epistemics"]["version"], 1)
+        self.assertIn("claims", result["epistemics"])
 
     def test_run_chat_still_respects_chat_disabled_flag(self):
         runtime = self._runtime()
@@ -83,6 +80,43 @@ class ControlRuntimeChatDelegationTests(unittest.TestCase):
         with mock.patch.object(runtime._chat_runtime.flags, "get_flags", return_value={"chat_enabled": False}):
             with self.assertRaises(PermissionError):
                 runtime.run_chat({"prompt": "hi"})
+
+
+class ChatRuntimeEpistemicContextTests(unittest.TestCase):
+    def test_owner_correction_is_fed_back_without_retraining(self):
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path.cwd()
+            os.chdir(td)
+            try:
+                runtime = ChatRuntime()
+                runtime.add_epistemic_review(
+                    {
+                        "claim_text": "The service listens on port 9000 by default.",
+                        "relation": "correct",
+                        "correction_text": "The service listens on port 8787 by default.",
+                        "shared": False,
+                    }
+                )
+                captured = {}
+
+                def fake_generate(args):
+                    captured["context"] = args.epistemic_context
+                    return {"response": "It uses port 8787.", "reasoning": "", "model": args.model}
+
+                with mock.patch("src.serve_web._resolve_default_model", return_value="models/test.pt"), \
+                     mock.patch("src.serve_web.generate_response", side_effect=fake_generate):
+                    runtime.run_chat(
+                        {
+                            "prompt": "Which port does the service use by default?",
+                            "model": "models/test.pt",
+                            "enable_memory": False,
+                            "enable_web_tools": False,
+                        }
+                    )
+                self.assertIn("8787", captured["context"])
+                self.assertIn("Peer reviews are excluded", captured["context"])
+            finally:
+                os.chdir(cwd)
 
 
 class ControlRuntimeTeacherStatsTests(unittest.TestCase):

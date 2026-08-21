@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Ickle ILM Local API
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Two local HTTP servers, not one API: serve-web (chat, default port 8787)
     and serve-control (training/tasks/memory/network/maintenance, default
@@ -92,7 +92,7 @@ paths:
                 image_base64: { type: string }
       responses:
         '200':
-          description: '{response, reasoning, model, confidence, low_confidence, think_assessment}'
+          description: '{response, reasoning, model, confidence, low_confidence, think_assessment, epistemics}'
   /api/chat/stream:
     get:
       summary: SSE streaming chat (GET, params in query string)
@@ -127,7 +127,7 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: 'text/event-stream: reasoning_start/reasoning/reasoning_end, text (chunked), done ({low_confidence}), stream_error'
+          description: 'text/event-stream: reasoning_start/reasoning/reasoning_end, text (chunked), done ({low_confidence, confidence, epistemics}), stream_error'
     post:
       summary: SSE streaming chat (POST, same fields as /api/chat plus this endpoint's own params, as a JSON body instead of query string)
       responses:
@@ -138,6 +138,24 @@ paths:
       summary: Record a 1-5 rating on a prompt/response pair (feeds build_preference_pairs)
       responses:
         '200': { description: '{saved, rating}' }
+  /api/epistemics/reviews:
+    post:
+      summary: Save a signed support, dispute, or correction for one candidate answer claim
+      description: Reviews are local unless this individual request sets shared=true.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim_text, relation]
+              properties:
+                claim_text: { type: string }
+                relation: { type: string, enum: [support, dispute, correct] }
+                correction_text: { type: string }
+                source_url: { type: string, format: uri }
+                shared: { type: boolean, default: false }
+      responses:
+        '201': { description: '{saved, event, commons}' }
   /api/sessions:
     get:
       summary: List chat sessions
@@ -450,6 +468,37 @@ paths:
       summary: Remove a known peer address
       responses:
         '200': { description: '{peers}' }
+  /api/swarm/ask:
+    post:
+      summary: Ask signed inference peers and return a conflict-preserving collective view
+      responses:
+        '200': { description: '{domain, peers_asked, peers_answered, responses, representative, deliberation, trust_policy}' }
+  /api/swarm/feedback:
+    post:
+      summary: Update local per-domain peer trust from an explicit human Helpful / Not helpful review
+      responses:
+        '200': { description: '{saved, peer_id, domain, trust, signal}' }
+  /api/commons/status:
+    get:
+      summary: Local Epistemic Commons counts and recent signed review events
+      responses:
+        '200': { description: '{events, local_events, peer_events, shared_events, events_recent, conflict_policy, prompt_policy}' }
+  /api/codistill/status:
+    get:
+      summary: Co-distillation report and local human/objective peer-trust ranking
+      responses:
+        '200': { description: '{trust, last_report, corpus_pairs}' }
+  /api/commons/sync:
+    post:
+      summary: Bidirectionally sync explicitly shared review events with configured peers
+      responses:
+        '200': { description: '{peers_attempted, peers_reached, received, sent, rejected, errors, commons}' }
+        '403': { description: Peer network is not joined }
+  /api/commons/adopt:
+    post:
+      summary: Adopt a received peer review into owner-controlled local prompt context
+      responses:
+        '200': { description: '{adopted, event, commons}' }
   /api/contribution/status:
     get:
       summary: Local seed:peer contribution ledger status

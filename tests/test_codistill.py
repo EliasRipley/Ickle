@@ -265,7 +265,7 @@ class EndToEndRoundTests(unittest.TestCase):
         self.assertGreater(learner_ledger.ledger.peer_requests_consumed, 0)
         self.assertGreater(teacher.ledger.ledger.peer_requests_served, 0)
 
-    def test_trust_store_updates_after_round(self):
+    def test_agreement_does_not_bootstrap_trust_after_round(self):
         self._start_teacher("t1", "consistent answer about photosynthesis using sunlight")
         self._start_teacher("t2", "consistent answer about photosynthesis using sunlight and water")
 
@@ -281,10 +281,7 @@ class EndToEndRoundTests(unittest.TestCase):
             probes=[Probe(probe_id="photo-01", prompt="What is photosynthesis?")],
             min_teachers_per_probe=2,
         )
-        self.assertTrue(len(trust_store.trust) >= 2)
-        for domains in trust_store.trust.values():
-            for score in domains.values():
-                self.assertNotEqual(score, DEFAULT_TRUST)
+        self.assertEqual(trust_store.trust, {})
 
 
 class AskSwarmLiveTests(unittest.TestCase):
@@ -326,7 +323,7 @@ class AskSwarmLiveTests(unittest.TestCase):
         self.nodes.append(node)
         return node
 
-    def test_returns_best_answer_and_updates_trust(self):
+    def test_returns_representative_and_preserves_trust_for_human_review(self):
         self._start_teacher("peerA", "paris is the capital of france")
         self._start_teacher("peerB", "the capital of france is paris")
         self._start_teacher("peerC", "bananas are a good source of potassium and fiber")
@@ -347,7 +344,9 @@ class AskSwarmLiveTests(unittest.TestCase):
         self.assertEqual(result["peers_answered"], 3)
         self.assertIsNotNone(result["best"])
         self.assertIn("paris", result["best"]["response"].lower())
-        self.assertTrue(len(trust_store.trust) >= 3)
+        self.assertEqual(trust_store.trust, {})
+        self.assertIn("deliberation", result)
+        self.assertGreaterEqual(result["deliberation"]["summary"]["common_claims"], 1)
 
     def test_no_peers_returns_empty_result(self):
         asker_identity = create_ed_identity(label="asker-lonely")

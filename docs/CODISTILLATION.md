@@ -37,18 +37,14 @@ of architecture, size, or tokenizer — can teach each other.
    (`src/federated/aggregation.py`'s Byzantine-robust weight aggregator) — a
    lazy, broken, or hostile peer's outlier answer scores low and is dropped,
    instead of being blindly trusted because it answered first.
-4. Consensus scores update a local `PeerTrustStore`
-   (`data/codistill/peer_trust.json`, an EMA **per `(peer_id, domain)` pair**,
-   not one scalar per peer) so future rounds ask proven teachers first —
-   this is the "reputation-weighted peer selection" that
-   `docs/INFERENCE_SHARING.md` lists as future work, applied here to
-   teaching quality specifically. Tracking trust per domain means a peer
-   that teaches code well but creative writing poorly is preferred for code
-   questions and passed over for creative ones, instead of one flat number
-   hiding the difference. `classify_domain()` buckets a live question into
-   the same domains a probe's id already encodes, so `infer ask`
-   (`src/federated/inference_swarm.py`) and the live `ask_swarm()` path both
-   draw on this same per-domain reputation, not just training rounds.
+4. Agreement does **not** update durable `PeerTrustStore` reputation. Several
+   similar models can repeat the same error or converge through conformity.
+   The store remains local and per `(peer_id, domain)`, but now changes from
+   explicit owner feedback (Helpful / Not helpful) or future objective
+   evaluation outcomes. `classify_domain()` buckets a live question into the
+   same domains a probe's id already encodes, so selection can still prefer a
+   peer the owner found useful for code without assuming it is also reliable
+   for creative writing.
 5. Surviving (prompt, response) pairs become an ordinary distillation corpus
    in the exact `DialogPair` format `src/continual_guard.py` already
    consumes. **Nothing is trained on directly from the network** — the
@@ -73,15 +69,16 @@ in `src/serve_control.py`). The distilled corpus still has to be fed through
 corpus," matching the CLI's boundary between distillation and training.
 
 There is also a live path: `ask_swarm()` in `src/federated/codistill.py`
-reuses the exact same signed transport, consensus scoring, and trust store,
+reuses the exact same signed transport, descriptive agreement scoring, and trust store,
 but for the user's actual question right now instead of a shared probe set,
 querying trust-ranked peers concurrently since a person is waiting on the
 answer. Every assistant chat message gets an "Ask the swarm too" button that
 calls `POST /api/swarm/ask` (`ControlRuntime.ask_swarm`) and shows each
-peer's answer with its consensus/trust score, highlighting the pick. A live
-ask still updates the same `PeerTrustStore` a training round reads from, so
-the two paths keep improving the same peer-selection signal instead of being
-two disconnected features.
+peer's answer with answer-overlap and current local-trust scores. It shows
+claim-level common ground without hiding distinct contributions. No answer is
+highlighted as true merely because it is the majority view. Helpful / Not
+helpful controls let the owner update the same `PeerTrustStore` a training
+round reads from.
 
 ## CLI reference
 
@@ -111,9 +108,9 @@ python -m src.app continual-guard run-step \
   accrue `peer_requests_served` and learners accrue `peer_requests_consumed`
   in the existing `ContributionLedger` automatically, same as any other
   `infer ask`.
-- `PeerTrustStore` is local and unshared, the same trust model as the
-  contribution ledger's seed:peer ratio — each peer forms its own opinion
-  from its own observations, nothing is broadcast or globally agreed.
+- `PeerTrustStore` is local and unshared. Each owner forms their own opinion
+  from explicit reviews and future objective outcomes; agreement alone does
+  not create reputation, and nothing is broadcast or globally agreed.
 - Consensus requires at least `--min-teachers-per-probe` (default 2)
   responding peers; a probe with too few responders is skipped for that
   round rather than accepting an uncorroborated single answer.
@@ -124,6 +121,8 @@ python -m src.app continual-guard run-step \
   result* against held-out core prompts, not the distillation source, so a
   model that got worse from bad peer data is refused promotion regardless of
   how confidently the swarm agreed.
+- The claim-level collective view is descriptive. Text overlap can miss
+  paraphrases or group unlike claims; see `docs/EPISTEMIC_COMMONS.md`.
 - The probe *file* is still a static, shared file — rotation only changes
   which subset of it is live on a given day, not the underlying content.
   Peers running a round on the same UTC day converge on the same subset

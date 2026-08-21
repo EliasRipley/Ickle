@@ -129,6 +129,26 @@ def collect_checks() -> list[CheckItem]:
 
     checks.append(_federated_intake_check())
 
+    commons_parts = {
+        "answer map": Path("src/epistemics.py").exists(),
+        "signed event ledger": Path("src/federated/knowledge_commons.py").exists(),
+        "human interface": Path("web/app.js").exists()
+        and "createEpistemicBlock" in Path("web/app.js").read_text(encoding="utf-8"),
+        "protocol documentation": Path("docs/EPISTEMIC_COMMONS.md").exists(),
+    }
+    commons_missing = [name for name, present in commons_parts.items() if not present]
+    checks.append(
+        CheckItem(
+            area="epistemic_commons",
+            status="implemented" if not commons_missing else "incomplete",
+            detail=(
+                "Inspectable candidate claims, signed local-by-default review, conflict-preserving peer merge, and explicit adoption are present."
+                if not commons_missing
+                else f"Missing: {', '.join(commons_missing)}."
+            ),
+        )
+    )
+
     checks.append(
         CheckItem(
             area="core_model",

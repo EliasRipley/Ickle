@@ -734,6 +734,7 @@ class ControlRuntime:
             "port": self.swarm.port,
             "external_host": self.swarm.external_host,
             "known_peers": self.list_known_peers(),
+            "commons": self.swarm.commons.summary(),
         }
 
     def get_torickle_bundles(self) -> list[dict[str, Any]]:
@@ -1283,6 +1284,53 @@ class ControlRuntime:
             ledger=ledger,
             trust_store=trust_store,
         )
+
+    def rate_swarm_response(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Let the owner, rather than peer conformity, govern local trust."""
+        from src.federated.codistill import DEFAULT_TRUST_STORE_PATH, PeerTrustStore, classify_domain
+
+        peer_id = str(payload.get("peer_id", "")).strip()
+        prompt = str(payload.get("prompt", "")).strip()
+        if not peer_id or not prompt:
+            raise ValueError("Missing peer_id or prompt")
+        if not re.fullmatch(r"[a-fA-F0-9]{40}", peer_id):
+            raise ValueError("Invalid peer_id")
+        helpful_raw = payload.get("helpful")
+        if not isinstance(helpful_raw, bool):
+            raise ValueError("helpful must be true or false")
+        domain = classify_domain(prompt)
+        trust_store = PeerTrustStore(DEFAULT_TRUST_STORE_PATH)
+        trust = trust_store.update(peer_id, 1.0 if helpful_raw else 0.0, domain)
+        trust_store.save()
+        return {"saved": True, "peer_id": peer_id, "domain": domain, "trust": trust, "signal": "human_review"}
+
+    def get_commons_status(self) -> dict[str, Any]:
+        ledger = self._chat_runtime.epistemic_ledger()
+        return {
+            **ledger.summary(),
+            "events_recent": ledger.public_events(limit=80),
+            "conflict_policy": "preserve",
+            "prompt_policy": "peer events are inert until locally adopted",
+        }
+
+    def sync_commons(self) -> dict[str, Any]:
+        if not bool(self.flags.get_flags().get("federated_enabled", False)):
+            raise PermissionError("Join the peer network before syncing shared knowledge.")
+        from src.federated.knowledge_commons import sync_with_peers
+
+        peers = self._load_known_peers()
+        report = sync_with_peers(self._chat_runtime.epistemic_ledger(), peers)
+        return {**report, "commons": self._chat_runtime.epistemic_ledger().summary()}
+
+    def adopt_commons_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        event_id = str(payload.get("event_id", "")).strip()
+        if not event_id:
+            raise ValueError("Missing event_id")
+        event = self._chat_runtime.epistemic_ledger().adopt_event(
+            event_id,
+            shared=bool(payload.get("shared", False)),
+        )
+        return {"adopted": True, "event": event, "commons": self._chat_runtime.epistemic_ledger().summary()}
 
     def get_contribution_status(self) -> dict[str, Any]:
         """Seed:peer contribution ledger summary (torrent-ratio style: how much
@@ -2259,6 +2307,9 @@ class ControlHandler(IckleHTTPHandler):
         if parsed.path == "/api/codistill/status":
             self._send_json(200, self.runtime.get_codistill_status())
             return
+        if parsed.path == "/api/commons/status":
+            self._send_json(200, self.runtime.get_commons_status())
+            return
         if parsed.path == "/api/contribution/status":
             self._send_json(200, self.runtime.get_contribution_status())
             return
@@ -2437,6 +2488,15 @@ class ControlHandler(IckleHTTPHandler):
             if parsed.path == "/api/swarm/ask":
                 self._send_json(200, self.runtime.ask_swarm(str(payload.get("prompt", ""))))
                 return
+            if parsed.path == "/api/swarm/feedback":
+                self._send_json(200, self.runtime.rate_swarm_response(payload))
+                return
+            if parsed.path == "/api/commons/sync":
+                self._send_json(200, self.runtime.sync_commons())
+                return
+            if parsed.path == "/api/commons/adopt":
+                self._send_json(200, self.runtime.adopt_commons_event(payload))
+                return
             if parsed.path == "/api/teach/sessions":
                 self._send_json(201, self.runtime.start_teaching_session(payload))
                 return
@@ -2520,7 +2580,8 @@ def main():
         "API: /api/status, /api/system/resources, /api/training/progress, /api/chat, /api/flags, /api/models, "
         "/api/tasks, /api/tasks/infer, /api/memory/summary, /api/memory/facts, /api/memory/context, "
         "/api/memory/export, /api/memory/export/save, /api/memory/search, /api/memory/clear, "
-        "/api/swarm/join, /api/swarm/leave, /api/swarm/peers/add, /api/swarm/peers/remove, "
+        "/api/swarm/join, /api/swarm/leave, /api/swarm/peers/add, /api/swarm/peers/remove, /api/swarm/ask, /api/swarm/feedback, "
+        "/api/commons/status, /api/commons/sync, /api/commons/adopt, "
         "/api/research/sessions, /api/research/find, "
         "/api/programs/research-train, /api/open-dataset-ingest, /api/maintenance/model, "
         "/api/maintenance/training, /api/maintenance/data, /api/workspace-check, "

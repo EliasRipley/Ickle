@@ -52,6 +52,7 @@ data/sessions/
 data/codistill/last_report.json
 data/codistill/peer_trust.json
 data/codistill/distilled_corpus.txt
+data/commons/
 
 # Local trained checkpoints, teacher/distillation session logs, feedback
 # history, and registered knowledge-module deltas -- all personal training

@@ -44,6 +44,8 @@ from src.ilm_chat import (
     _try_memory_write,
 )
 from src.dynamic_web_reader import read_url_dynamic
+from src.epistemics import build_answer_map
+from src.federated.knowledge_commons import EpistemicLedger
 from src.reality_check import collect_checks
 from src.runtime_flags import RuntimeFlagsStore
 from src.system_limits import SystemLimits
@@ -96,12 +98,34 @@ class ChatRuntime:
         self.default_model = ""
         self._attach_previews: dict[str, tuple[bytes, str, float]] = {}
         self._attach_previews_lock = threading.Lock()
+        self._commons: EpistemicLedger | None = None
         # Exposed via /api/status so a launcher (scripts/start_web_ui.py) can
         # tell a genuinely fresh process apart from a stale one still serving
         # code from before the last edit -- Python doesn't hot-reload source
         # files, so reusing an old process silently serves old behavior with
         # no visible sign anything is wrong.
         self.started_at = time.time()
+
+    def epistemic_ledger(self) -> EpistemicLedger:
+        # Lazy so read-only status/model-list operations on a fresh install do
+        # not create an identity/database until epistemic features are used.
+        if self._commons is None:
+            self._commons = EpistemicLedger()
+        return self._commons
+
+    def add_epistemic_review(self, payload: dict[str, Any]) -> dict[str, Any]:
+        claim_text = str(payload.get("claim_text", "")).strip()
+        relation = str(payload.get("relation", "")).strip().lower()
+        if not claim_text:
+            raise ValueError("Missing claim_text")
+        event = self.epistemic_ledger().add_review(
+            claim_text=claim_text,
+            relation=relation,
+            correction_text=str(payload.get("correction_text", "")).strip(),
+            source_url=str(payload.get("source_url", "")).strip(),
+            shared=bool(payload.get("shared", False)),
+        )
+        return {"saved": True, "event": event, "commons": self.epistemic_ledger().summary()}
 
     def store_attach_preview(self, data: bytes, content_type: str) -> str:
         if len(data) > ATTACH_PREVIEW_MAX_BYTES:
@@ -157,6 +181,15 @@ class ChatRuntime:
         )
         default_model = self._resolve_default_model()
 
+        # Only this device owner's explicit reviews can enter the prompt.
+        # Imported peer perspectives remain inspectable but inert until the
+        # owner adopts one through the Commons UI.
+        epistemic_context = ""
+        try:
+            epistemic_context = self.epistemic_ledger().context_for_prompt(prompt)
+        except Exception as exc:  # Optional transparency must not break chat.
+            print(f"epistemic context unavailable, continuing without it: {exc}", file=sys.stderr)
+
         image_path = None
         image_base64 = str(payload.get("image_base64") or "").strip()
         if image_base64:
@@ -184,6 +217,7 @@ class ChatRuntime:
             autonomy_mode=str(payload.get("autonomy_mode") or "") or None,
             image_path=image_path,
             raw_output=bool(payload.get("raw_output", False)),
+            epistemic_context=epistemic_context,
         )
         try:
             result = generate_response(args)
@@ -193,7 +227,7 @@ class ChatRuntime:
                     Path(image_path).unlink(missing_ok=True)
                 except OSError:
                     pass
-        return {
+        output = {
             "response": result.get("response", ""),
             "reasoning": result.get("reasoning", ""),
             "model": result.get("model", args.model),
@@ -201,6 +235,18 @@ class ChatRuntime:
             "low_confidence": bool(result.get("low_confidence", False)),
             "think_assessment": result.get("think_assessment"),
         }
+        try:
+            output["epistemics"] = build_answer_map(
+                prompt=prompt,
+                response=str(output["response"] or ""),
+                evidence_items=list(result.get("evidence_items", []) or []),
+                review_lookup=self.epistemic_ledger(),
+                low_confidence=bool(output["low_confidence"]),
+            )
+        except Exception as exc:  # Keep the model's answer available even if the optional map fails.
+            print(f"answer map unavailable, continuing without it: {exc}", file=sys.stderr)
+            output["epistemics"] = None
+        return output
 
     def list_models(self, *, limit: int = 80, include_checkpoints: bool = False, policy_only: bool = True) -> list[dict]:
         rows: list[dict] = []
@@ -397,7 +443,12 @@ class ChatHandler(IckleHTTPHandler):
                 line = f"event: text\ndata: {json.dumps(event)}\n\n"
                 self.wfile.write(line.encode())
                 self.wfile.flush()
-            done_event = {"type": "done", "low_confidence": bool(result.get("low_confidence", False))}
+            done_event = {
+                "type": "done",
+                "low_confidence": bool(result.get("low_confidence", False)),
+                "confidence": result.get("confidence"),
+                "epistemics": result.get("epistemics"),
+            }
             self.wfile.write(f"event: done\ndata: {json.dumps(done_event)}\n\n".encode("utf-8"))
             self.wfile.flush()
         except ConnectionError:
@@ -520,6 +571,9 @@ class ChatHandler(IckleHTTPHandler):
                 )
                 self._send_json(200, {"saved": True, "rating": fb.rating})
                 return
+            if parsed.path == "/api/epistemics/reviews":
+                self._send_json(201, self.runtime.add_epistemic_review(payload))
+                return
             if parsed.path == "/api/attach-preview":
                 image_base64 = str(payload.get("image_base64", "") or "").strip()
                 if not image_base64:
@@ -558,6 +612,8 @@ class ChatHandler(IckleHTTPHandler):
                     text=text,
                     thinking=str(payload.get("thinking", "")),
                     model=str(payload.get("model", "")),
+                    epistemics=payload.get("epistemics"),
+                    low_confidence=bool(payload.get("low_confidence", False)),
                 )
                 if msg is None:
                     self._send_json(404, {"error": "Session not found"})
@@ -706,7 +762,7 @@ def main():
         print(f"Ickle control API: http://{args.host}:{control_port} (Manage panel: Training/Tasks/Network/Sharing/etc.)")
 
     print(f"Ickle chat: http://{args.host}:{args.port}")
-    print("API: /api/status, /api/chat, /api/chat/stream, /api/models, /api/flags, /api/control-port, /api/feedback")
+    print("API: /api/status, /api/chat, /api/chat/stream, /api/models, /api/flags, /api/control-port, /api/feedback, /api/epistemics/reviews")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -23,12 +23,11 @@ that heterogeneity a non-issue by exchanging text, not weights:
      text-domain analogue of Multi-Krum (aggregation.py's Byzantine-robust
      weight aggregator) -- an outlier/corrupted/lazy peer's answer scores low
      and gets dropped instead of silently averaged in.
-  3. Consensus scores feed a local, per-peer `PeerTrustStore` (an EMA of how
-     often a peer's answers agree with the group) so future rounds prefer
-     asking peers who have historically taught well -- addressing the
-     documented "peer selection is first offer that responds" gap in
-     inference_swarm.py/docs/INFERENCE_SHARING.md, but for teaching quality
-     rather than latency.
+  3. Agreement is recorded as descriptive evidence and an outlier filter,
+     but no longer bootstraps durable peer trust. Homogeneous models can
+     agree through correlated error or conformity. `PeerTrustStore` is
+     updated by explicit owner review (or future objective outcomes), while
+     the answer map preserves minority claims for inspection.
   4. Surviving (prompt, response) pairs become an ordinary distillation
      corpus in the same `DialogPair`/`write_pairs_as_corpus` format
      `continual_guard.py` already consumes -- so a bad or malicious peer's
@@ -36,9 +35,9 @@ that heterogeneity a non-issue by exchanging text, not weights:
      through the existing replay-buffer anti-forgetting mixing and
      regression/promotion gates before anything is promoted.
 
-No new trust authority, no new signature scheme, no new corpus format --
-this is deliberately a routing/filtering layer over infrastructure that
-already exists.
+No new trust authority, no new signature scheme, no new corpus format. The
+human owner remains the authority for their local reputation and knowledge
+adoption policy.
 """
 
 from __future__ import annotations
@@ -63,6 +62,7 @@ from src.federated.inference_swarm import (
     find_offers,
     request_inference,
 )
+from src.epistemics import build_collective_view
 from src.federated.keys import EdIdentity, ensure_ed_identity
 from src.federated.peer_discovery import PeerDiscovery
 from src.promotion_gate import has_repeated_word_run, token_overlap_score
@@ -381,27 +381,34 @@ def ask_swarm(
     score_consensus(responses)
     for r in responses:
         r.trust_score = trust_store.get(r.teacher_peer_id, domain)
-        trust_store.update(r.teacher_peer_id, r.consensus_score, domain)
-    trust_store.save()
+
+    # Agreement is useful descriptive information, but it is not a durable
+    # reputation signal: homogeneous models can copy the same error or
+    # converge through conformity.  Trust now changes only from an explicit
+    # owner review (/api/swarm/feedback) or a future objective evaluation.
 
     best = None
     if responses:
         best = max(responses, key=lambda r: (r.consensus_score * 0.7) + (r.trust_score * 0.3))
 
+    response_rows = [
+        {
+            "peer_id": r.teacher_peer_id,
+            "response": r.response,
+            "consensus_score": r.consensus_score,
+            "trust_score": r.trust_score,
+        }
+        for r in responses
+    ]
     return {
         "domain": domain,
         "peers_asked": len(candidates),
         "peers_answered": len(responses),
-        "responses": [
-            {
-                "peer_id": r.teacher_peer_id,
-                "response": r.response,
-                "consensus_score": r.consensus_score,
-                "trust_score": r.trust_score,
-            }
-            for r in responses
-        ],
+        "responses": response_rows,
         "best": ({"peer_id": best.teacher_peer_id, "response": best.response} if best else None),
+        "representative": ({"peer_id": best.teacher_peer_id, "response": best.response} if best else None),
+        "deliberation": build_collective_view(response_rows),
+        "trust_policy": "human-or-objective-review; agreement alone does not change trust",
     }
 
 
@@ -440,7 +447,7 @@ def run_codistillation_round(
 ) -> dict[str, Any]:
     """Runs one full teach-and-learn round: for each probe, ask several
     peers ranked by trust *in that probe's domain*, score their agreement,
-    update trust, and keep the responses that clear the consensus bar.
+    describe agreement, and keep candidate responses that clear the outlier bar.
     Returns a report plus the accepted DialogPair-shaped rows; writing them
     to a corpus file is the caller's job (see `main()`/`round` command) so
     this stays testable without touching the filesystem."""
@@ -473,7 +480,6 @@ def run_codistillation_round(
         score_consensus(responses)
         for r in responses:
             r.trust_score = trust_store.get(r.teacher_peer_id, domain)
-            trust_store.update(r.teacher_peer_id, r.consensus_score, domain)
             r.accepted = r.consensus_score >= min_consensus
 
         surviving = [r for r in responses if r.accepted]
@@ -488,9 +494,13 @@ def run_codistillation_round(
             "teachers_accepted": len(surviving),
             "accepted": bool(surviving),
             "scores": [{"peer_id": r.teacher_peer_id, "consensus": r.consensus_score, "trust": r.trust_score} for r in responses],
+            "deliberation": build_collective_view([
+                {"peer_id": r.teacher_peer_id, "response": r.response} for r in responses
+            ]),
         })
 
-    trust_store.save()
+    # Deliberation agreement gates candidate data for the existing promotion
+    # pipeline, but never bootstraps long-term reputation from conformity.
     return {
         "peers_discovered": len(all_offers),
         "probes_total": len(probes),

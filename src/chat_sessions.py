@@ -62,8 +62,16 @@ class ChatSessions:
         self._prune_old_sessions()
         return session
 
-    def add_message(self, session_id: str, role: str, text: str,
-                    thinking: str = "", model: str = "") -> dict[str, Any] | None:
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        text: str,
+        thinking: str = "",
+        model: str = "",
+        epistemics: dict[str, Any] | None = None,
+        low_confidence: bool = False,
+    ) -> dict[str, Any] | None:
         session = self.get_session(session_id)
         if session is None:
             return None
@@ -74,6 +82,10 @@ class ChatSessions:
             "model": model,
             "at": _utc_now(),
         }
+        if role == "assistant":
+            msg["lowConfidence"] = bool(low_confidence)
+            if isinstance(epistemics, dict):
+                msg["epistemics"] = epistemics
         session.setdefault("messages", []).append(msg)
         if len(session["messages"]) > MAX_MESSAGES_PER_SESSION:
             session["messages"][:] = session["messages"][-MAX_MESSAGES_PER_SESSION:]

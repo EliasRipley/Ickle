@@ -9,6 +9,8 @@ class RealityCheckTests(unittest.TestCase):
         areas = {c.area: c for c in checks}
         self.assertIn("core_model", areas)
         self.assertIn("autonomous_learning", areas)
+        self.assertIn("epistemic_commons", areas)
+        self.assertEqual(areas["epistemic_commons"].status, "implemented")
         self.assertEqual(areas["autonomous_learning"].status, "prototype")
 
 

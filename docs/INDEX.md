@@ -4,6 +4,7 @@ Start with [the project README](../README.md) for the vision and current status,
 
 - [Federated and Android contribution](FEDERATED_MOBILE.md)
 - [Inference sharing (P2P answer serving)](INFERENCE_SHARING.md)
+- [Epistemic Commons (inspectable claims and P2P human review)](EPISTEMIC_COMMONS.md)
 - [Running a bootstrap peer](BOOTSTRAP_NODE.md)
 - [Continual-learning guard](CONTINUAL_LEARNING_GUARD.md)
 - [Additive knowledge modules](ADDITIVE_KNOWLEDGE_MODULES.md)

@@ -12,6 +12,8 @@
   --send-bg: #238636;
   --send-hover: #2ea043;
   --danger: #f85149;
+  --success: #3fb950;
+  --warning: #d29922;
 }
 
 * {
@@ -452,6 +454,173 @@ html, body {
   border: 1px solid var(--border);
 }
 
+.epistemic-block {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  white-space: normal;
+}
+
+.epistemic-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 3px 9px;
+}
+
+.epistemic-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.epistemic-content {
+  margin-top: 8px;
+}
+
+.epistemic-caveat {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+
+.epistemic-claim {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 7px;
+  margin-top: 7px;
+  padding: 8px 10px;
+}
+
+.epistemic-source_linked {
+  border-left-color: var(--accent);
+}
+
+.epistemic-human_reviewed,
+.epistemic-corrected {
+  border-left-color: var(--success);
+}
+
+.epistemic-contested {
+  border-left-color: var(--warning);
+}
+
+.epistemic-peer_perspective {
+  border-left-color: var(--warning);
+}
+
+.epistemic-claim-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.epistemic-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.epistemic-claim-text {
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.epistemic-basis,
+.epistemic-correction {
+  color: var(--muted);
+  font-size: 0.71rem;
+  line-height: 1.35;
+  margin: 5px 0 0;
+}
+
+.epistemic-correction {
+  color: var(--text);
+}
+
+.epistemic-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.epistemic-sources a {
+  color: var(--accent);
+  font-size: 0.7rem;
+}
+
+.epistemic-actions,
+.epistemic-form-buttons,
+.commons-actions,
+.swarm-human-review {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.epistemic-actions button,
+.epistemic-form-buttons button,
+.swarm-human-review button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+  padding: 3px 7px;
+}
+
+.epistemic-actions button:hover,
+.epistemic-form-buttons button:hover,
+.swarm-human-review button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.epistemic-save-status,
+.swarm-human-review span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.epistemic-review-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.epistemic-review-form textarea,
+.epistemic-review-form input[type="url"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.epistemic-share-label,
+.epistemic-review-form small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
 .msg-feedback {
   display: flex;
   align-items: center;
@@ -523,6 +692,26 @@ html, body {
 
 .msg-swarm-ask-best {
   border-color: var(--accent);
+}
+
+.swarm-common-ground {
+  border-left: 2px solid var(--accent);
+  margin: 6px 0;
+  padding: 5px 9px;
+}
+
+.swarm-common-ground strong {
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.swarm-common-ground p {
+  margin: 3px 0 0;
+}
+
+.commons-event-row .task-row-main a {
+  color: var(--accent);
+  font-size: 0.72rem;
 }
 
 .thinking-block {

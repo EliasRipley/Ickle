@@ -740,6 +740,44 @@ def _make_result(response: str, *, reasoning: str = "", model: str = "", low_con
     return {"response": response, "reasoning": reasoning, "model": model, "low_confidence": low_confidence}
 
 
+def _answer_evidence_items(
+    web_data: dict[str, Any] | None,
+    topic_web_data: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Flatten retrieved evidence for the web UI's inspectable answer map.
+
+    This metadata is not presented as proof.  ``src.epistemics`` performs a
+    second, conservative text-overlap link from each generated candidate
+    claim to these source passages and labels the result "source linked".
+    """
+
+    rows: list[dict[str, Any]] = []
+    if web_data and web_data.get("success"):
+        fallback_url = str(web_data.get("url", "")).strip()
+        fallback_title = str(web_data.get("title", "")).strip()
+        for raw in list(web_data.get("evidence_items", []))[:24]:
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            row.setdefault("source_url", fallback_url)
+            row.setdefault("source_title", fallback_title)
+            rows.append(row)
+    if topic_web_data and topic_web_data.get("success"):
+        for source in list(topic_web_data.get("sources", []))[:8]:
+            if not isinstance(source, dict):
+                continue
+            fallback_url = str(source.get("url", "")).strip()
+            fallback_title = str(source.get("title", "")).strip()
+            for raw in list(source.get("evidence_items", []))[:16]:
+                if not isinstance(raw, dict):
+                    continue
+                row = dict(raw)
+                row.setdefault("source_url", fallback_url)
+                row.setdefault("source_title", fallback_title)
+                rows.append(row)
+    return rows[:64]
+
+
 def extract_response_text(result: Any) -> str:
     """Normalize generate_response output into plain assistant text."""
     value = result
@@ -949,6 +987,10 @@ def generate_response(args):
         activation = registry.activation_prompt(args.skill)
         prompt_sections.append(f"Skill activation:\n{activation}")
 
+    epistemic_context = str(getattr(args, "epistemic_context", "") or "").strip()
+    if epistemic_context:
+        prompt_sections.append(epistemic_context)
+
     if selected_modules:
         active = ", ".join(item.module_id for item in selected_modules)
         prompt_sections.append(f"Active knowledge modules: {active}")
@@ -1074,9 +1116,12 @@ def generate_response(args):
         result = _make_result(response, reasoning=reasoning, model=args.model, low_confidence=low_confidence)
         result["confidence"] = final_confidence["confidence"]
         result["think_assessment"] = assessment
+        result["evidence_items"] = _answer_evidence_items(web_data, topic_web_data)
         return result
 
-    return _make_result(response, reasoning=reasoning, model=args.model, low_confidence=low_confidence)
+    result = _make_result(response, reasoning=reasoning, model=args.model, low_confidence=low_confidence)
+    result["evidence_items"] = _answer_evidence_items(web_data, topic_web_data)
+    return result
 
 
 def interactive_mode(

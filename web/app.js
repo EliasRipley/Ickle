@@ -298,6 +298,218 @@ function createThinkingBlock(reasoning) {
   return block;
 }
 
+const EPISTEMIC_STATUS_LABELS = {
+  corrected: "Human correction",
+  contested: "Contested",
+  human_reviewed: "Human reviewed",
+  peer_perspective: "Peer perspective",
+  source_linked: "Related sources",
+  advice: "Advice / judgement",
+  open: "Open claim",
+};
+
+async function saveClaimReview(claim, relation, correctionText, sourceUrl, shared) {
+  const result = await api("/api/epistemics/reviews", {
+    method: "POST",
+    body: JSON.stringify({
+      claim_text: claim.text,
+      relation,
+      correction_text: correctionText || "",
+      source_url: sourceUrl || "",
+      shared: Boolean(shared),
+    }),
+  });
+  if (shared && CONTROL_PORT) {
+    // Saving the signed review succeeds independently of the network. If the
+    // node is offline, it remains queued locally for the next explicit sync.
+    try {
+      await controlApi("/api/commons/sync", { method: "POST", body: JSON.stringify({}) });
+    } catch {}
+  }
+  return result;
+}
+
+function createEpistemicBlock(passport) {
+  const claims = Array.isArray(passport?.claims) ? passport.claims : [];
+  if (!claims.length) return null;
+
+  const block = document.createElement("div");
+  block.className = "epistemic-block";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "epistemic-toggle";
+  toggle.textContent = `Inspect ${claims.length} candidate claim${claims.length === 1 ? "" : "s"}`;
+  toggle.title = "See which parts of this answer have related sources, human review, or unresolved uncertainty.";
+
+  const content = document.createElement("div");
+  content.className = "epistemic-content";
+  content.hidden = true;
+  toggle.addEventListener("click", () => {
+    content.hidden = !content.hidden;
+    toggle.textContent = content.hidden
+      ? `Inspect ${claims.length} candidate claim${claims.length === 1 ? "" : "s"}`
+      : "Hide answer map";
+  });
+
+  const intro = document.createElement("p");
+  intro.className = "epistemic-caveat";
+  intro.textContent = passport.caveat || "This map shows support and disagreement; it is not a truth certificate.";
+  content.appendChild(intro);
+
+  claims.forEach((claim) => {
+    const card = document.createElement("div");
+    card.className = `epistemic-claim epistemic-${claim.status || "open"}`;
+    const heading = document.createElement("div");
+    heading.className = "epistemic-claim-heading";
+    const badge = document.createElement("span");
+    badge.className = "epistemic-status";
+    badge.textContent = EPISTEMIC_STATUS_LABELS[claim.status] || "Candidate claim";
+    const claimText = document.createElement("span");
+    claimText.className = "epistemic-claim-text";
+    claimText.textContent = claim.text || "";
+    heading.appendChild(badge);
+    heading.appendChild(claimText);
+    card.appendChild(heading);
+
+    (claim.basis || []).forEach((basis) => {
+      const line = document.createElement("p");
+      line.className = "epistemic-basis";
+      line.textContent = basis;
+      card.appendChild(line);
+    });
+
+    const corrections = claim.reviews?.corrections || [];
+    corrections.forEach((correction) => {
+      const line = document.createElement("p");
+      line.className = "epistemic-correction";
+      line.textContent = `${correction.is_local ? "Correction" : "Peer suggestion"}: ${correction.text}`;
+      card.appendChild(line);
+    });
+
+    const sources = Array.isArray(claim.sources) ? claim.sources : [];
+    if (sources.length) {
+      const sourceList = document.createElement("div");
+      sourceList.className = "epistemic-sources";
+      sources.forEach((source) => {
+        const url = String(source.source_url || "");
+        if (!/^https?:\/\//i.test(url)) return;
+        const link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = source.source_title || new URL(url).hostname;
+        link.title = "Related retrieved source; the link does not by itself prove the claim.";
+        sourceList.appendChild(link);
+      });
+      if (sourceList.childNodes.length) card.appendChild(sourceList);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "epistemic-actions";
+    const supportBtn = document.createElement("button");
+    supportBtn.type = "button";
+    supportBtn.textContent = "Looks right";
+    supportBtn.title = "Record your review on this device. This is human feedback, not automatic proof.";
+    const challengeBtn = document.createElement("button");
+    challengeBtn.type = "button";
+    challengeBtn.textContent = "Challenge / correct";
+    actions.appendChild(supportBtn);
+    actions.appendChild(challengeBtn);
+    card.appendChild(actions);
+
+    const status = document.createElement("span");
+    status.className = "epistemic-save-status";
+    actions.appendChild(status);
+
+    supportBtn.addEventListener("click", async () => {
+      supportBtn.disabled = true;
+      challengeBtn.disabled = true;
+      status.textContent = "Saving...";
+      try {
+        await saveClaimReview(claim, "support", "", "", false);
+        badge.textContent = EPISTEMIC_STATUS_LABELS.human_reviewed;
+        card.className = "epistemic-claim epistemic-human_reviewed";
+        status.textContent = "Saved locally.";
+      } catch (err) {
+        status.textContent = err.message || "Couldn't save review.";
+        supportBtn.disabled = false;
+        challengeBtn.disabled = false;
+      }
+    });
+
+    challengeBtn.addEventListener("click", () => {
+      supportBtn.hidden = true;
+      challengeBtn.hidden = true;
+      const form = document.createElement("form");
+      form.className = "epistemic-review-form";
+      const correction = document.createElement("textarea");
+      correction.rows = 2;
+      correction.placeholder = "What should Ickle use instead? Leave blank to mark the claim as disputed.";
+      const source = document.createElement("input");
+      source.type = "url";
+      source.placeholder = "Supporting source URL (optional)";
+      const shareLabel = document.createElement("label");
+      shareLabel.className = "epistemic-share-label";
+      const share = document.createElement("input");
+      share.type = "checkbox";
+      shareLabel.appendChild(share);
+      shareLabel.appendChild(document.createTextNode(" Share this signed review with configured peers"));
+      const privacy = document.createElement("small");
+      privacy.textContent = "Off by default. Once another peer receives a shared event, you cannot delete their copy.";
+      const buttons = document.createElement("div");
+      buttons.className = "epistemic-form-buttons";
+      const save = document.createElement("button");
+      save.type = "submit";
+      save.textContent = "Save review";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => {
+        form.remove();
+        supportBtn.hidden = false;
+        challengeBtn.hidden = false;
+      });
+      buttons.appendChild(save);
+      buttons.appendChild(cancel);
+      form.appendChild(correction);
+      form.appendChild(source);
+      form.appendChild(shareLabel);
+      form.appendChild(privacy);
+      form.appendChild(buttons);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        save.disabled = true;
+        cancel.disabled = true;
+        status.textContent = "Saving...";
+        try {
+          const correctionText = correction.value.trim();
+          await saveClaimReview(
+            claim, correctionText ? "correct" : "dispute", correctionText, source.value.trim(), share.checked
+          );
+          badge.textContent = correctionText
+            ? EPISTEMIC_STATUS_LABELS.corrected
+            : EPISTEMIC_STATUS_LABELS.contested;
+          card.className = `epistemic-claim epistemic-${correctionText ? "corrected" : "contested"}`;
+          status.textContent = share.checked ? "Saved and marked for peer sharing." : "Saved locally.";
+          form.remove();
+        } catch (err) {
+          status.textContent = err.message || "Couldn't save review.";
+          save.disabled = false;
+          cancel.disabled = false;
+        }
+      });
+      card.appendChild(form);
+      correction.focus();
+    });
+
+    content.appendChild(card);
+  });
+
+  block.appendChild(toggle);
+  block.appendChild(content);
+  return block;
+}
+
 function render() {
   chatArea.innerHTML = "";
 
@@ -350,6 +562,11 @@ function render() {
       badge.title = "Ickle's own quality/relevance check on this answer looked weak, but this is its real, unedited output.";
       badge.textContent = "Low confidence";
       bubble.appendChild(badge);
+    }
+
+    if (m.role === "assistant" && m.epistemics && !m.error && !m.empty) {
+      const answerMap = createEpistemicBlock(m.epistemics);
+      if (answerMap) bubble.appendChild(answerMap);
     }
 
     if (m.model) {
@@ -432,7 +649,7 @@ function createSwarmAskRow(prompt) {
     askBtn.disabled = true;
     askBtn.textContent = "Asking peers...";
     resultsEl.hidden = false;
-    resultsEl.textContent = "Waiting on responses (this can take a while on a slow network)...";
+    resultsEl.textContent = "Waiting on independent perspectives...";
     try {
       const data = await controlApi("/api/swarm/ask", {
         method: "POST",
@@ -447,19 +664,69 @@ function createSwarmAskRow(prompt) {
         const summary = document.createElement("p");
         summary.className = "hint-text";
         const domainNote = data.domain && data.domain !== "general" ? ` (routed as "${data.domain}")` : "";
-        summary.textContent = `${data.peers_answered}/${data.peers_asked} peer(s) answered${domainNote}:`;
+        const collective = data.deliberation?.summary || {};
+        summary.textContent =
+          `${data.peers_answered}/${data.peers_asked} peer(s) answered${domainNote}. ` +
+          `${collective.common_claims || 0} repeated claim(s), ${collective.distinct_claims || 0} distinct contribution(s). ` +
+          "Agreement is visible, but is not treated as proof.";
         resultsEl.appendChild(summary);
+        const commonGround = data.deliberation?.common_ground || [];
+        if (commonGround.length) {
+          const common = document.createElement("div");
+          common.className = "swarm-common-ground";
+          const title = document.createElement("strong");
+          title.textContent = "Common ground";
+          common.appendChild(title);
+          commonGround.slice(0, 5).forEach((claim) => {
+            const line = document.createElement("p");
+            line.textContent = `${claim.peer_count} peers: ${claim.representative}`;
+            common.appendChild(line);
+          });
+          resultsEl.appendChild(common);
+        }
         (data.responses || []).forEach((r) => {
           const row = document.createElement("div");
-          row.className = "msg-swarm-ask-response" + (data.best && data.best.peer_id === r.peer_id ? " msg-swarm-ask-best" : "");
+          row.className = "msg-swarm-ask-response";
           const meta = document.createElement("div");
           meta.className = "msg-meta";
-          meta.textContent = `${r.peer_id.slice(0, 12)}... · consensus ${r.consensus_score.toFixed(2)} · trust ${r.trust_score.toFixed(2)}`;
+          meta.textContent =
+            `${r.peer_id.slice(0, 12)}... · answer overlap ${r.consensus_score.toFixed(2)} · ` +
+            `your trust ${r.trust_score.toFixed(2)}`;
           const text = document.createElement("div");
           text.className = "msg-text";
           renderMessageText(text, r.response);
+          const review = document.createElement("div");
+          review.className = "swarm-human-review";
+          const helpful = document.createElement("button");
+          helpful.type = "button";
+          helpful.textContent = "Helpful";
+          const unhelpful = document.createElement("button");
+          unhelpful.type = "button";
+          unhelpful.textContent = "Not helpful";
+          const reviewStatus = document.createElement("span");
+          const sendPeerReview = async (value) => {
+            helpful.disabled = true;
+            unhelpful.disabled = true;
+            try {
+              const saved = await controlApi("/api/swarm/feedback", {
+                method: "POST",
+                body: JSON.stringify({ peer_id: r.peer_id, prompt, helpful: value }),
+              });
+              reviewStatus.textContent = `Trust updated to ${Number(saved.trust).toFixed(2)} for ${saved.domain}.`;
+            } catch (err) {
+              reviewStatus.textContent = err.message || "Couldn't save peer review.";
+              helpful.disabled = false;
+              unhelpful.disabled = false;
+            }
+          };
+          helpful.addEventListener("click", () => sendPeerReview(true));
+          unhelpful.addEventListener("click", () => sendPeerReview(false));
+          review.appendChild(helpful);
+          review.appendChild(unhelpful);
+          review.appendChild(reviewStatus);
           row.appendChild(meta);
           row.appendChild(text);
+          row.appendChild(review);
           resultsEl.appendChild(row);
         });
       }
@@ -476,26 +743,36 @@ function createSwarmAskRow(prompt) {
   return wrap;
 }
 
-async function saveMessageToSession(role, text, model, thinking, sessionId = activeSessionId) {
+async function saveMessageToSession(
+  role, text, model, thinking, sessionId = activeSessionId, epistemics = null, lowConfidence = false
+) {
   if (!sessionId) return;
   try {
     await api(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, text, thinking: thinking || "", model: model || "" }),
+      body: JSON.stringify({
+        role,
+        text,
+        thinking: thinking || "",
+        model: model || "",
+        epistemics: epistemics || undefined,
+        low_confidence: Boolean(lowConfidence),
+      }),
     });
   } catch {}
 }
 
-function addMessage(role, text, model, thinking) {
+function addMessage(role, text, model, thinking, epistemics = null) {
   messages.push({
     role,
     text: String(text || ""),
     thinking: String(thinking || ""),
     at: new Date().toISOString(),
     model: model || "",
+    epistemics: epistemics || null,
   });
   saveMessagesLocal();
-  saveMessageToSession(role, text, model, thinking);
+  saveMessageToSession(role, text, model, thinking, activeSessionId, epistemics);
   render();
 }
 
@@ -615,6 +892,7 @@ async function sendStreaming(text, imageBase64 = null) {
   let thinkingContent = "";
   let responseContent = "";
   let lowConfidence = false;
+  let epistemics = null;
   let finished = false;
   const myController = new AbortController();
   activeStreamController = myController;
@@ -644,10 +922,13 @@ async function sendStreaming(text, imageBase64 = null) {
           at: new Date().toISOString(),
           model: model,
           lowConfidence: lowConfidence,
+          epistemics: epistemics,
         });
         saveMessagesLocal();
       }
-      saveMessageToSession("assistant", responseContent, model, thinkingContent, streamSessionId);
+      saveMessageToSession(
+        "assistant", responseContent, model, thinkingContent, streamSessionId, epistemics, lowConfidence
+      );
     } else if (errorText) {
       if (stillOnThisSession()) {
         messages.push({
@@ -715,6 +996,7 @@ async function sendStreaming(text, imageBase64 = null) {
       finish(data.text || "Ickle could not complete that response.");
     } else if (eventName === "done") {
       lowConfidence = Boolean(data.low_confidence);
+      epistemics = data.epistemics || null;
       finish();
     }
   };
@@ -1918,6 +2200,7 @@ async function refreshNetworkTab() {
   }
 
   await refreshCodistillPanel();
+  await refreshCommonsPanel();
 }
 
 // --- Peer teaching / co-distillation ---------------------------------------
@@ -2024,6 +2307,92 @@ if (networkAddPeerForm) {
     } catch (err) {
       errorEl.textContent = err.message || "Couldn't add that peer.";
       errorEl.hidden = false;
+    }
+  });
+}
+
+// --- Epistemic Commons -----------------------------------------------------
+
+async function refreshCommonsPanel() {
+  const summary = $("commons-summary");
+  const list = $("commons-events-list");
+  const empty = $("commons-events-empty");
+  if (!summary || !list || !empty) return;
+  try {
+    const data = await controlApi("/api/commons/status");
+    summary.textContent =
+      `${data.local_events || 0} review(s) from this device; ${data.peer_events || 0} from ` +
+      `${data.peer_authors || 0} peer(s); ${data.shared_events || 0} explicitly shareable.`;
+    const remote = (data.events_recent || []).filter((event) => !event.is_local);
+    list.innerHTML = "";
+    empty.hidden = remote.length > 0;
+    remote.forEach((event) => {
+      const row = document.createElement("div");
+      row.className = "task-row commons-event-row";
+      const main = document.createElement("div");
+      main.className = "task-row-main";
+      const title = document.createElement("span");
+      title.className = "task-row-title";
+      title.textContent = event.claim_text || "Shared review";
+      const detail = document.createElement("span");
+      detail.className = "task-row-status";
+      const correction = event.correction_text ? ` Suggested: ${event.correction_text}` : "";
+      detail.textContent = `${event.relation} by ${String(event.author_peer_id || "peer").slice(0, 12)}...${correction}`;
+      main.appendChild(title);
+      main.appendChild(detail);
+      if (/^https?:\/\//i.test(event.source_url || "")) {
+        const source = document.createElement("a");
+        source.href = event.source_url;
+        source.target = "_blank";
+        source.rel = "noopener noreferrer";
+        source.textContent = "Review source";
+        main.appendChild(source);
+      }
+      const adopt = document.createElement("button");
+      adopt.type = "button";
+      adopt.textContent = "Use locally";
+      adopt.title = "Adopt this perspective into your local human-reviewed context. It is not automatically treated as true.";
+      adopt.addEventListener("click", async () => {
+        adopt.disabled = true;
+        try {
+          await controlApi("/api/commons/adopt", {
+            method: "POST",
+            body: JSON.stringify({ event_id: event.event_id, shared: false }),
+          });
+          adopt.textContent = "Adopted";
+          refreshCommonsPanel();
+        } catch (err) {
+          adopt.textContent = err.message || "Failed";
+          adopt.disabled = false;
+        }
+      });
+      row.appendChild(main);
+      row.appendChild(adopt);
+      list.appendChild(row);
+    });
+  } catch {
+    summary.textContent = "Couldn't load the local knowledge commons.";
+  }
+}
+
+const commonsSyncBtn = $("commons-sync-btn");
+if (commonsSyncBtn) {
+  commonsSyncBtn.addEventListener("click", async () => {
+    const status = $("commons-sync-status");
+    commonsSyncBtn.disabled = true;
+    if (status) status.textContent = "Syncing signed reviews...";
+    try {
+      const report = await controlApi("/api/commons/sync", { method: "POST", body: JSON.stringify({}) });
+      if (status) {
+        status.textContent =
+          `Reached ${report.peers_reached || 0}/${report.peers_attempted || 0} peer(s); ` +
+          `received ${report.received || 0}, sent ${report.sent || 0}.`;
+      }
+      await refreshCommonsPanel();
+    } catch (err) {
+      if (status) status.textContent = err.message || "Couldn't sync shared reviews.";
+    } finally {
+      commonsSyncBtn.disabled = false;
     }
   });
 }

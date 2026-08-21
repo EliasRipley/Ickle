@@ -376,12 +376,23 @@
       </details>
 
       <div class="network-peers-section">
-        <p class="hint-text">Peer teaching (co-distillation): Ickle's federated training above only pools peers running the exact same model architecture. This lets <strong>any</strong> peer running "infer serve" -- whatever size or shape their model is -- teach yours instead, by asking a shared question set and only keeping answers multiple peers agree on. Nothing is trusted blindly: agreed answers still go through the normal review/rollback safety checks before anything is learned.</p>
+        <p class="hint-text">Peer teaching (co-distillation): Ickle's federated training above only pools peers running the exact same model architecture. This lets <strong>any</strong> peer running "infer serve" -- whatever size or shape their model is -- contribute candidate answers. Agreement can filter obvious outliers, but no longer creates trust by itself; candidates still pass the normal review/rollback safety checks before anything is learned.</p>
         <button id="codistill-run-btn" type="button">Run a teaching round now</button>
         <p id="codistill-run-status" class="hint-text"></p>
         <div id="codistill-last-report" class="hint-text"></div>
-        <p class="hint-text" id="codistill-trust-heading" hidden>Peers ranked by how often their answers have agreed with the group:</p>
+        <p class="hint-text" id="codistill-trust-heading" hidden>Peers ranked by your reviews and objective outcomes (agreement alone does not create trust):</p>
         <div id="codistill-trust-list" class="tasks-list"></div>
+      </div>
+
+      <div class="network-peers-section commons-section">
+        <p class="hint-text"><strong>Epistemic Commons:</strong> corrections you make in an answer's “Inspect claims” panel form a signed, conflict-preserving knowledge layer. Reviews stay on this device unless you explicitly share each one. Peer reviews never change Ickle's answers until you choose “Use locally”.</p>
+        <div class="commons-actions">
+          <button id="commons-sync-btn" type="button">Sync shared reviews now</button>
+          <span id="commons-sync-status" class="hint-text"></span>
+        </div>
+        <p id="commons-summary" class="hint-text">Loading...</p>
+        <div id="commons-events-list" class="tasks-list"></div>
+        <p id="commons-events-empty" class="hint-text" hidden>No peer reviews received yet.</p>
       </div>
     </div>
 

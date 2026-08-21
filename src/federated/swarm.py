@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from src.federated.contribution_ledger import LedgerStore
 from src.federated.identity import SwarmIdentity, ensure_identity, load_identity, save_identity
 from src.federated.keys import EdIdentity, ensure_ed_identity, peer_id_from_pubkey, verify_payload
+from src.federated.knowledge_commons import EpistemicLedger, MAX_EVENT_BATCH, MAX_SYNC_BYTES
 from src.federated.nat_traversal import stun_get_external_address, upnp_add_port_mapping, upnp_remove_port_mapping
 from src.federated.node_base import detect_local_ip
 from src.federated.peer_discovery import PeerDiscovery, PeerInfo, bootstrap_fetch
@@ -145,9 +146,6 @@ class SwarmRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(body)
 
@@ -155,7 +153,6 @@ class SwarmRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
 
@@ -163,10 +160,12 @@ class SwarmRequestHandler(BaseHTTPRequestHandler):
         self._json_response(404, {"error": msg})
 
     def do_OPTIONS(self):  # noqa: N802
+        # Peer-to-peer clients are native HTTP clients and do not need CORS.
+        # Deliberately omit Access-Control-Allow-Origin so an arbitrary web
+        # page cannot read a person's loopback swarm/commons data or POST to
+        # it through their browser. The local Ickle UI talks to serve-control,
+        # whose CORS policy is restricted to localhost origins.
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def _parse_path(self) -> list[str]:
@@ -189,12 +188,15 @@ class SwarmRequestHandler(BaseHTTPRequestHandler):
                 return self._handle_list_peers()
             if segments[2:] == ["dht", "bundles"]:
                 return self._handle_list_dht_announcements()
+            if segments[2:] == ["commons", "events"]:
+                return self._handle_list_commons_events()
             return self._json_response(200, {
                 "service": "ickle-swarm",
                 "version": version,
                 "peer_id": self.swarm_node.identity.peer_id,
                 "bundles_served": len(self.swarm_node.bundles),
                 "peers_known": len(self.swarm_node.peer_discovery.store.all_peers()),
+                "commons": self.swarm_node.commons.summary(),
             })
         except IndexError:
             return self._not_found("Invalid path")
@@ -301,11 +303,44 @@ class SwarmRequestHandler(BaseHTTPRequestHandler):
             "peers": [p.to_dict() for p in peers],
         })
 
+    def _handle_list_commons_events(self):
+        """Expose only reviews their authors explicitly marked as shared."""
+        parsed = urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        try:
+            after = max(0.0, float((query.get("after", ["0"])[0] or "0")))
+            limit = max(1, min(MAX_EVENT_BATCH, int((query.get("limit", [str(MAX_EVENT_BATCH)])[0] or MAX_EVENT_BATCH))))
+        except (TypeError, ValueError):
+            return self._json_response(400, {"error": "after and limit must be numeric"})
+        events = self.swarm_node.commons.public_events(shared_only=True, after=after, limit=limit)
+        self._json_response(200, {
+            "peer_id": self.swarm_node.ed_identity.peer_id,
+            "events": events,
+            "conflict_policy": "preserve",
+        })
+
     def do_POST(self):  # noqa: N802
         segments = self._parse_path()
         if len(segments) >= 3 and segments[0] == "torickle" and segments[2] == "announce":
             return self._handle_post_announce()
+        if segments == ["torickle", "v1", "commons", "events"]:
+            return self._handle_post_commons_events()
         return self._not_found("POST not supported for this path")
+
+    def _handle_post_commons_events(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length <= 0 or content_length > MAX_SYNC_BYTES:
+                return self._json_response(400, {"error": "Invalid Content-Length"})
+            raw = self.rfile.read(content_length)
+            data = json.loads(raw.decode("utf-8"))
+            events = data.get("events", []) if isinstance(data, dict) else []
+            if not isinstance(events, list):
+                return self._json_response(400, {"error": "events must be a list"})
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            return self._json_response(400, {"error": f"Invalid JSON: {exc}"})
+        result = self.swarm_node.commons.merge_events(events)
+        return self._json_response(200, result)
 
     def _handle_post_announce(self):
         try:
@@ -384,6 +419,14 @@ class SwarmNode:
         # peer_id/store namespacing it already handles.
         self.ed_identity = ed_identity or ensure_ed_identity(
             self.data_dir / "swarm_ed_identity.json", label=identity.label
+        )
+        # Human reviews use the same public peer identity as signed bundle
+        # announcements, but live in their own conflict-preserving event set.
+        # data_dir is normally data/torickle, so the database sits beside it
+        # at data/commons and is shared with the local chat server.
+        self.commons = EpistemicLedger(
+            self.data_dir.parent / "commons" / "epistemic.sqlite3",
+            identity=self.ed_identity,
         )
         self.peer_discovery = peer_discovery or PeerDiscovery()
         self.ledger = ledger or LedgerStore(self.data_dir / "contribution_ledger.json")
