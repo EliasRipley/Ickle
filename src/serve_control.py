@@ -652,10 +652,8 @@ class ControlRuntime:
             # off (the default) keeps the swarm loopback-only, so nothing it
             # does is reachable from another machine -- matching the "nothing
             # sent anywhere unless you turn it on" promise in the UI. On binds
-            # externally and joins any known peers via _join_via_bootstrap(),
-            # which is the real "ask a known peer what it knows" step (just
-            # constructing PeerDiscovery/add_bootstrap alone never contacts
-            # anyone).
+            # externally, starts trackerless Mainline-DHT discovery, and also
+            # joins any explicitly configured direct/private peers.
             network_enabled = bool(self.flags.get_flags().get("federated_enabled", False))
             env_host = str(os.getenv("ICKLE_SWARM_HOST", "")).strip()
             swarm_host = env_host or ("0.0.0.0" if network_enabled else "127.0.0.1")
@@ -666,7 +664,10 @@ class ControlRuntime:
                 host=swarm_host,
                 external_host=env_external or None,
             )
-            self.swarm.start(attempt_nat_traversal=network_enabled)
+            self.swarm.start(
+                attempt_nat_traversal=network_enabled,
+                public_discovery=network_enabled,
+            )
             if network_enabled:
                 _join_via_bootstrap(self.swarm.peer_discovery, self._load_known_peers())
             print(f"Swarm node active: {identity.peer_id} (network_enabled={network_enabled}, host={swarm_host})")
@@ -723,19 +724,44 @@ class ControlRuntime:
     def get_swarm_status(self) -> dict[str, Any]:
         network_enabled = bool(self.flags.get_flags().get("federated_enabled", False))
         if not self.swarm:
-            return {"active": False, "enabled": network_enabled, "known_peers": self.list_known_peers()}
+            return {
+                "active": False,
+                "enabled": network_enabled,
+                "known_peers": self.list_known_peers(),
+                "public_discovery": {"enabled": False, "phase": "off"},
+            }
+        remote_peers = [
+            peer
+            for peer in self.swarm.peer_discovery.store.all_peers()
+            if peer.peer_id != self.swarm.identity.peer_id_bytes
+        ]
+        if self.swarm._external_host_explicit or self.swarm._port_mapped:
+            reachability = "reachable"
+        elif network_enabled:
+            reachability = "outbound-only"
+        else:
+            reachability = "local"
         return {
             "active": True,
             "enabled": network_enabled,
             "peer_id": self.swarm.identity.peer_id,
             "bundles_served": len(self.swarm.bundles),
-            "peers_known": len(self.swarm.peer_discovery.store.all_peers()),
+            "peers_known": len(remote_peers),
             "host": self.swarm.host,
             "port": self.swarm.port,
             "external_host": self.swarm.external_host,
+            "reachability": reachability,
+            "port_mapped": bool(self.swarm._port_mapped),
             "known_peers": self.list_known_peers(),
+            "public_discovery": self.swarm.public_discovery_status(),
             "commons": self.swarm.commons.summary(),
         }
+
+    def refresh_public_swarm(self) -> dict[str, Any]:
+        if not self.swarm:
+            return {"error": "Swarm node not available"}
+        self.swarm.refresh_public_discovery()
+        return self.get_swarm_status()
 
     def get_torickle_bundles(self) -> list[dict[str, Any]]:
         if not self.swarm:
@@ -1252,10 +1278,10 @@ class ControlRuntime:
         """Live, in-chat counterpart to the codistill_round task: ask
         trust-ranked peers the user's actual question right now instead of
         waiting for a training round. Reuses the same bootstrap peer list
-        and identity file as run_codistill_round_task -- a fresh
-        PeerDiscovery rather than self.swarm's, so this still works with
-        "Join peer network" off (loopback-only self.swarm) as long as the
-        user has added specific peer addresses to talk to."""
+        and identity file as run_codistill_round_task. Dedicated inference
+        serving remains a separate, explicit privacy boundary, so this uses
+        directly configured inference peer addresses rather than silently
+        sending a prompt to every model/training-swarm participant."""
         from src.federated.codistill import DEFAULT_TRUST_STORE_PATH, PeerTrustStore, ask_swarm as _ask_swarm
         from src.federated.contribution_ledger import LedgerStore
         from src.federated.inference_swarm import DEFAULT_IDENTITY_PATH
@@ -2473,6 +2499,9 @@ class ControlHandler(IckleHTTPHandler):
                 return
             if parsed.path == "/api/swarm/leave":
                 self._send_json(200, self.runtime.set_network_enabled(False))
+                return
+            if parsed.path == "/api/swarm/refresh":
+                self._send_json(200, self.runtime.refresh_public_swarm())
                 return
             if parsed.path == "/api/swarm/peers/add":
                 address = str(payload.get("address", "")).strip()

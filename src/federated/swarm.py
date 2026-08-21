@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import threading
@@ -10,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from src.federated.knowledge_commons import EpistemicLedger, MAX_EVENT_BATCH, MA
 from src.federated.nat_traversal import stun_get_external_address, upnp_add_port_mapping, upnp_remove_port_mapping
 from src.federated.node_base import detect_local_ip
 from src.federated.peer_discovery import PeerDiscovery, PeerInfo, bootstrap_fetch
+from src.federated.public_dht import MainlineDHTClient, PublicDHTService, PUBLIC_SWARM_INFOHASH
 
 
 DEFAULT_SWARM_PORT = 8790
@@ -441,6 +444,9 @@ class SwarmNode:
         self._running = False
         self._cleanup_thread: threading.Thread | None = None
         self._cleanup_stop = threading.Event()
+        self.public_dht: PublicDHTService | None = None
+        self._public_discovery_requested = False
+        self._connectivity_thread: threading.Thread | None = None
 
     @property
     def bundles(self) -> dict[str, BundleInfo]:
@@ -459,24 +465,38 @@ class SwarmNode:
                 print(f"  Peer store cleanup failed (non-fatal): {exc}")
 
 
-    def start(self, *, attempt_nat_traversal: bool = False):
+    def start(self, *, attempt_nat_traversal: bool = False, public_discovery: bool = False):
         if self._running:
             return
         self._server = ThreadingHTTPServer((self.host, self.port), SwarmRequestHandler)
+        # Port 0 is useful for tests and embedded nodes.  Once the OS chooses
+        # the real port, every announcement and probe must use that port rather
+        # than continuing to advertise zero.
+        self.port = int(self._server.server_port)
         self._server.swarm_node = self  # type: ignore[attr-defined]
         self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._server_thread.start()
         self._running = True
         self.peer_discovery.node_id = self.identity.peer_id_bytes
 
-        if attempt_nat_traversal:
-            self._attempt_nat_traversal()
-
         self.peer_discovery.announce(port=self.port, tags={"peer_id": self.identity.peer_id})
         self._scan_local_bundles()
         self._cleanup_stop.clear()
         self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
         self._cleanup_thread.start()
+        self._public_discovery_requested = bool(public_discovery)
+        if attempt_nat_traversal:
+            # STUN and router discovery can take several seconds on a
+            # restrictive network. Local chat and the control API should be
+            # usable immediately while connectivity negotiates in background.
+            self._connectivity_thread = threading.Thread(
+                target=self._bootstrap_connectivity,
+                daemon=True,
+                name="ickle-connectivity",
+            )
+            self._connectivity_thread.start()
+        elif public_discovery:
+            self._start_public_discovery()
         print(f"Swarm node started on {self.host}:{self.port} (external: {self.external_host}:{self.port})")
         print(f"  Peer ID: {self.identity.peer_id}")
         print(f"  Bundles found: {len(self._bundles)}")
@@ -503,10 +523,31 @@ class SwarmNode:
             mapped = False
             print(f"  UPnP port forwarding raised an unexpected error (not just 'unsupported'): {exc}")
         self._port_mapped = mapped
-        print(f"  UPnP port forwarding: {'succeeded' if mapped else 'unavailable (router UPnP off, unsupported, or blocked)'}")
+        mapping_status = "succeeded" if mapped else "unavailable (router UPnP off, unsupported, or blocked)"
+        print(f"  UPnP port forwarding: {mapping_status}")
+
+    def _bootstrap_connectivity(self):
+        self._attempt_nat_traversal()
+        if not self._running:
+            if self._port_mapped:
+                try:
+                    upnp_remove_port_mapping(self.port)
+                except Exception:
+                    pass
+                self._port_mapped = False
+            return
+        if self._public_discovery_requested:
+            self._start_public_discovery()
 
     def stop(self):
         self._running = False
+        self._public_discovery_requested = False
+        if self._connectivity_thread:
+            self._connectivity_thread.join(timeout=10)
+            self._connectivity_thread = None
+        if self.public_dht:
+            self.public_dht.stop()
+            self.public_dht = None
         self._cleanup_stop.set()
         if self._cleanup_thread:
             self._cleanup_thread.join(timeout=5)
@@ -524,6 +565,96 @@ class SwarmNode:
         if self._server_thread:
             self._server_thread.join(timeout=5)
             self._server_thread = None
+
+    def _start_public_discovery(self):
+        """Join the shared Ickle rendezvous key on the Mainline DHT.
+
+        This is deliberately backgrounded: a blocked UDP network or an empty
+        Ickle swarm must never delay local chat startup.  DHT results are only
+        untrusted endpoint candidates; _probe_public_candidate requires the
+        endpoint to identify itself as an Ickle service before it enters the
+        local peer store.
+        """
+        client = MainlineDHTClient(
+            self.identity.peer_id_bytes,
+            public_ip=self.external_host,
+        )
+        self.public_dht = PublicDHTService(client)
+        self.public_dht.start(self.port, self._accept_public_candidates)
+
+    def _probe_public_candidate(self, endpoint: tuple[str, int]) -> PeerInfo | None:
+        host, port = endpoint
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return None
+        if address.version != 4 or not address.is_global or not 1 <= int(port) <= 65_535:
+            return None
+        if host == self.external_host and int(port) == self.port:
+            return None
+        url = f"http://{host}:{int(port)}/torickle/v1"
+        try:
+            with urllib.request.urlopen(url, timeout=2.5) as response:
+                raw = response.read(65_537)
+            if len(raw) > 65_536:
+                return None
+            payload = json.loads(raw.decode("utf-8"))
+            if payload.get("service") != "ickle-swarm":
+                return None
+            peer_id_hex = str(payload.get("peer_id", ""))
+            if len(peer_id_hex) != 40:
+                return None
+            peer_id = bytes.fromhex(peer_id_hex)
+        except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
+            return None
+        if peer_id == self.identity.peer_id_bytes:
+            return None
+        return PeerInfo(
+            peer_id=peer_id,
+            address=(host, int(port)),
+            last_seen=time.time(),
+            tags={"source": "public-dht", "protocol": "torickle-v1"},
+        )
+
+    def _accept_public_candidates(self, endpoints: list[tuple[str, int]]) -> int:
+        """Verify DHT candidates concurrently, then learn signed content.
+
+        Peer lists returned by a newly discovered stranger are intentionally
+        not imported transitively.  The public DHT already supplies discovery,
+        and avoiding unverified peer exchange prevents one malicious endpoint
+        from filling the store with private-network/SSRF targets.
+        """
+        unique = list(dict.fromkeys(endpoints))[:32]
+        verified: list[PeerInfo] = []
+        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="ickle-peer-probe") as executor:
+            futures = [executor.submit(self._probe_public_candidate, endpoint) for endpoint in unique]
+            for future in as_completed(futures):
+                try:
+                    peer = future.result()
+                except Exception:
+                    peer = None
+                if peer is not None:
+                    verified.append(peer)
+        for peer in verified:
+            self.peer_discovery.store.add_peer(peer)
+        if verified:
+            addresses = [f"{peer.address[0]}:{peer.address[1]}" for peer in verified]
+            _join_via_bootstrap(self.peer_discovery, addresses, include_peer_exchange=False)
+        return len(verified)
+
+    def public_discovery_status(self) -> dict[str, Any]:
+        if not self.public_dht:
+            return {
+                "enabled": bool(self._running and self._public_discovery_requested),
+                "phase": "starting" if self._running and self._public_discovery_requested else "off",
+                "network_key": PUBLIC_SWARM_INFOHASH.hex(),
+            }
+        return self.public_dht.status()
+
+    def refresh_public_discovery(self) -> dict[str, Any]:
+        if self.public_dht:
+            self.public_dht.refresh_now()
+        return self.public_discovery_status()
 
     def _scan_local_bundles(self):
         if not self.bundles_dir.is_dir():
@@ -788,7 +919,12 @@ def _parse_addr(addr: str) -> tuple[str, int]:
     return addr.strip(), DEFAULT_SWARM_PORT
 
 
-def _join_via_bootstrap(peer_discovery: PeerDiscovery, bootstrap_addrs: list[str]):
+def _join_via_bootstrap(
+    peer_discovery: PeerDiscovery,
+    bootstrap_addrs: list[str],
+    *,
+    include_peer_exchange: bool = True,
+):
     """Actually contact each configured bootstrap peer's /torickle/v1/peers
     endpoint and merge what it reports into the local peer store.
     add_bootstrap() alone only records the address; this is the network call
@@ -799,17 +935,20 @@ def _join_via_bootstrap(peer_discovery: PeerDiscovery, bootstrap_addrs: list[str
     if not bootstrap_addrs:
         return
     bootstrap_pairs = [_parse_addr(a) for a in bootstrap_addrs]
-    for body in bootstrap_fetch(bootstrap_pairs, "/torickle/v1/peers"):
-        for raw_peer in body.get("peers", []):
-            try:
-                peer_discovery.store.add_peer(PeerInfo.from_dict(raw_peer))
-            except (KeyError, ValueError, TypeError):
-                continue
+    if include_peer_exchange:
+        for body in bootstrap_fetch(bootstrap_pairs, "/torickle/v1/peers"):
+            for raw_peer in body.get("peers", []):
+                try:
+                    peer_discovery.store.add_peer(PeerInfo.from_dict(raw_peer))
+                except (KeyError, ValueError, TypeError):
+                    continue
     for body in bootstrap_fetch(bootstrap_pairs, "/torickle/v1/dht/bundles"):
         for raw_ann in body.get("announcements", []):
             try:
                 ann = BundleAnnouncement.from_dict(raw_ann)
             except (KeyError, ValueError, TypeError):
+                continue
+            if not ann.verify():
                 continue
             dht_value = json.dumps(ann.to_dict(), sort_keys=True).encode("utf-8")
             dht_keys = {ann.dht_key(), _all_bundles_dht_key()}
@@ -841,6 +980,12 @@ def main():
              "forward --port automatically. Off by default since it makes "
              "outbound network calls and a router change; safe to enable for "
              "any node meant to be reachable from outside your LAN.",
+    )
+    start_parser.add_argument(
+        "--public-discovery", action="store_true",
+        help="Join Ickle's trackerless rendezvous key on the BitTorrent Mainline DHT. "
+             "This publishes the node's public IP and swarm port; pair it with "
+             "--nat-traversal when running behind a home router.",
     )
 
     import_parser = sub.add_parser("import", help="Import a torickle bundle directory")
@@ -904,7 +1049,10 @@ def main():
             external_host=external or None,
         )
         _join_via_bootstrap(node.peer_discovery, args.bootstrap)
-        node.start(attempt_nat_traversal=bool(getattr(args, "nat_traversal", False)))
+        node.start(
+            attempt_nat_traversal=bool(getattr(args, "nat_traversal", False)),
+            public_discovery=bool(getattr(args, "public_discovery", False)),
+        )
         if args.model_hash:
             for bundle_id in list(node.bundles.keys()):
                 node.announce_bundle(bundle_id, model_hash=args.model_hash)

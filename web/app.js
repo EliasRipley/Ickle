@@ -3,6 +3,12 @@ const MAX_MSGS = 300;
 
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(value) {
+  const node = document.createElement("span");
+  node.textContent = String(value ?? "");
+  return node.innerHTML;
+}
+
 const statusDot = $("status-dot");
 const statusLabel = $("status-label");
 const modelSelect = $("model-select");
@@ -12,7 +18,12 @@ const thinkingToggle = $("thinking-toggle");
 const agentToggle = $("agent-toggle");
 const codeExecToggle = $("code-exec-toggle");
 const codeExecToggleLabel = $("code-exec-toggle-label");
+const agentCapabilities = $("agent-capabilities");
 const rawOutputToggle = $("raw-output-toggle");
+const capabilitiesButton = $("capabilities-button");
+const capabilitiesPanel = $("capabilities-panel");
+const capabilitiesClose = $("capabilities-close");
+const capabilitiesCount = $("capabilities-count");
 const imageAttachBtn = $("image-attach-btn");
 const imageAttachInput = $("image-attach-input");
 const imageAttachPreview = $("image-attach-preview");
@@ -1325,14 +1336,19 @@ function friendlyTaskStatus(status) {
 }
 
 function openManageModal() {
+  setCapabilitiesOpen(false);
   manageModal.hidden = false;
   manageScrim.hidden = false;
+  document.body.classList.add("manage-open");
+  manageClose.focus();
   refreshManagePanel();
 }
 
 function closeManageModal() {
   manageModal.hidden = true;
   manageScrim.hidden = true;
+  document.body.classList.remove("manage-open");
+  if (manageButton) manageButton.focus();
 }
 
 const MANAGE_TABS = ["train", "teach", "tasks", "models", "memory", "dashboard", "network", "addons", "sharing", "research", "automation"];
@@ -1351,8 +1367,12 @@ const MANAGE_TAB_REFRESHERS = {
 };
 
 function switchManageTab(tab) {
+  let activeButton = null;
   document.querySelectorAll(".manage-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tab);
+    const active = btn.dataset.tab === tab;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", String(active));
+    if (active) activeButton = btn;
   });
   MANAGE_TABS.forEach((t) => {
     const panel = $(`manage-tab-${t}`);
@@ -1360,6 +1380,14 @@ function switchManageTab(tab) {
   });
   const refresher = MANAGE_TAB_REFRESHERS[tab];
   if (refresher) refresher();
+  if (activeButton && window.matchMedia("(max-width: 820px)").matches) {
+    const tabStrip = activeButton.closest(".manage-tabs");
+    if (tabStrip) {
+      window.requestAnimationFrame(() => {
+        tabStrip.scrollLeft = Math.max(0, activeButton.offsetLeft - 10);
+      });
+    }
+  }
 }
 
 if (manageButton) {
@@ -1370,6 +1398,7 @@ if (manageButton) {
   manageScrim.addEventListener("click", closeManageModal);
   document.querySelectorAll(".manage-tab").forEach((btn) => {
     btn.addEventListener("click", () => switchManageTab(btn.dataset.tab));
+    btn.setAttribute("role", "tab");
   });
   document.querySelectorAll('input[name="train-source"]').forEach((radio) => {
     radio.addEventListener("change", () => {
@@ -2151,12 +2180,40 @@ async function refreshNetworkTab() {
   try {
     const data = await controlApi("/api/torickle/status");
     if (joinToggle) joinToggle.checked = Boolean(data.enabled);
-    if (!data.enabled) {
-      summaryEl.innerHTML = '<p class="network-summary-line">Not connected -- turn on "Join peer network" to reach other peers.</p>';
-    } else {
-      const peerCount = data.peers_known || 0;
-      summaryEl.innerHTML = `<p class="network-summary-line">${peerCount} peer(s) known right now.</p>`;
-    }
+    if (networkRefreshBtn) networkRefreshBtn.disabled = !data.enabled;
+    const switchLabel = $("network-switch-label");
+    if (switchLabel) switchLabel.textContent = data.enabled ? "Leave swarm" : "Join swarm";
+    const discovery = data.public_discovery || {};
+    const allowedPhases = new Set(["off", "starting", "searching", "listening", "connected", "degraded"]);
+    const phase = allowedPhases.has(discovery.phase) ? discovery.phase : "degraded";
+    const peerCount = Number(data.peers_known || 0);
+    const phaseCopy = {
+      off: ["Not participating", "This device is not advertised and makes no discovery requests."],
+      starting: ["Starting public discovery", "Preparing the node identity and DHT lookup."],
+      searching: ["Searching the public DHT", "Looking for nodes sharing Ickle's versioned network key."],
+      listening: ["Public swarm active", "Discovery is working. This may be the first reachable Ickle node on the network."],
+      connected: ["Connected to the public swarm", `${peerCount} verified Ickle ${peerCount === 1 ? "peer" : "peers"} available.`],
+      degraded: ["Public discovery is limited", discovery.last_error || "The DHT did not answer; UDP may be blocked."],
+    }[phase];
+    const reachability = data.reachability || "local";
+    const reachabilityCopy = reachability === "reachable"
+      ? ["Incoming ready", data.port_mapped ? "Router port mapping is active." : "Using the configured public address."]
+      : reachability === "outbound-only"
+        ? ["Outbound only", "You can reach public peers, but your router did not automatically accept incoming connections."]
+        : ["Local only", "The swarm listener is bound to this device."];
+    const responded = Number(discovery.nodes_responded || 0);
+    const contacted = Number(discovery.nodes_contacted || 0);
+    const announced = Number(discovery.announced_to || 0);
+    summaryEl.innerHTML = `
+      <div class="network-state network-state-${phase}">
+        <span class="network-live-dot" aria-hidden="true"></span>
+        <div><strong>${phaseCopy[0]}</strong><span>${escapeHtml(phaseCopy[1])}</span></div>
+      </div>
+      <div class="network-metric"><span>VERIFIED PEERS</span><strong>${peerCount}</strong><small>speaking Ickle protocol</small></div>
+      <div class="network-metric"><span>DHT HEALTH</span><strong>${responded}<em> / ${contacted}</em></strong><small>routers answered / contacted</small></div>
+      <div class="network-metric"><span>REACHABILITY</span><strong>${reachabilityCopy[0]}</strong><small>${reachabilityCopy[1]}</small></div>
+      <div class="network-status-foot">Announced through ${announced} DHT ${announced === 1 ? "node" : "nodes"}${discovery.last_refresh_utc ? ` · refreshed ${escapeHtml(new Date(discovery.last_refresh_utc).toLocaleTimeString())}` : ""}</div>
+    `;
     const knownPeers = data.known_peers || [];
     peersList.innerHTML = "";
     peersEmpty.hidden = knownPeers.length > 0;
@@ -2282,12 +2339,33 @@ const networkJoinToggle = $("network-join-toggle");
 if (networkJoinToggle) {
   networkJoinToggle.addEventListener("change", async () => {
     const path = networkJoinToggle.checked ? "/api/swarm/join" : "/api/swarm/leave";
+    networkJoinToggle.disabled = true;
     try {
       await controlApi(path, { method: "POST", body: JSON.stringify({}) });
     } catch {
       networkJoinToggle.checked = !networkJoinToggle.checked;
+    } finally {
+      networkJoinToggle.disabled = false;
     }
     refreshNetworkTab();
+  });
+}
+
+const networkRefreshBtn = $("network-refresh-btn");
+if (networkRefreshBtn) {
+  networkRefreshBtn.addEventListener("click", async () => {
+    const note = $("network-refresh-note");
+    networkRefreshBtn.disabled = true;
+    if (note) note.textContent = "Starting a fresh DHT lookup…";
+    try {
+      await controlApi("/api/swarm/refresh", { method: "POST", body: JSON.stringify({}) });
+      if (note) note.textContent = "Discovery refresh started in the background.";
+      window.setTimeout(refreshNetworkTab, 1200);
+    } catch (err) {
+      if (note) note.textContent = err.message || "Couldn't refresh discovery.";
+    } finally {
+      networkRefreshBtn.disabled = false;
+    }
   });
 }
 
@@ -2733,18 +2811,60 @@ let manageInterval = null;
 function startManagePolling() {
   if (!CONTROL_PORT || manageInterval) return;
   manageInterval = setInterval(() => {
-    if (!manageModal.hidden) refreshManagePanel();
+    if (!manageModal.hidden) {
+      const activeTab = document.querySelector(".manage-tab.active")?.dataset.tab;
+      if (activeTab === "network") refreshNetworkTab();
+      else refreshManagePanel();
+    }
   }, 4000);
+}
+
+function setCapabilitiesOpen(open) {
+  if (!capabilitiesPanel || !capabilitiesButton) return;
+  capabilitiesPanel.hidden = !open;
+  capabilitiesButton.setAttribute("aria-expanded", String(open));
+}
+
+function syncCapabilitiesState() {
+  const switches = [memoryToggle, webToggle, thinkingToggle, agentToggle, codeExecToggle, rawOutputToggle];
+  const enabled = switches.filter((control) => control && control.checked).length;
+  if (capabilitiesCount) capabilitiesCount.textContent = String(enabled);
+  if (agentCapabilities) agentCapabilities.hidden = !(agentToggle && agentToggle.checked);
+  if (!agentToggle?.checked && codeExecToggle) codeExecToggle.checked = false;
+  if (capabilitiesButton) capabilitiesButton.classList.toggle("agent-active", Boolean(agentToggle?.checked));
+}
+
+if (capabilitiesButton && capabilitiesPanel) {
+  capabilitiesButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setCapabilitiesOpen(capabilitiesPanel.hidden);
+  });
+  capabilitiesPanel.addEventListener("click", (event) => event.stopPropagation());
+  if (capabilitiesClose) capabilitiesClose.addEventListener("click", () => setCapabilitiesOpen(false));
+  document.addEventListener("click", () => setCapabilitiesOpen(false));
 }
 
 if (agentToggle && codeExecToggleLabel) {
   const syncCodeExecVisibility = () => {
-    codeExecToggleLabel.hidden = !agentToggle.checked;
-    if (!agentToggle.checked && codeExecToggle) codeExecToggle.checked = false;
+    syncCapabilitiesState();
   };
   agentToggle.addEventListener("change", syncCodeExecVisibility);
   syncCodeExecVisibility();
 }
+
+[memoryToggle, webToggle, thinkingToggle, rawOutputToggle, codeExecToggle].forEach((control) => {
+  if (control) control.addEventListener("change", syncCapabilitiesState);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (capabilitiesPanel && !capabilitiesPanel.hidden) {
+    setCapabilitiesOpen(false);
+    capabilitiesButton?.focus();
+  } else if (manageModal && !manageModal.hidden) {
+    closeManageModal();
+  }
+});
 
 // ---------------------------------------------------------------------------
 

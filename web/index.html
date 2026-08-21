@@ -30,39 +30,61 @@
           </button>
         </div>
         <div class="topbar-right">
-          <button id="manage-button" class="manage-button" type="button" hidden>Manage</button>
-          <label class="model-picker-label" for="model-select">Model</label>
-          <select id="model-select" class="model-picker" aria-label="Choose which trained model answers you"></select>
-          <label class="toggle" title="Let Ickle remember things you tell it across chats, stored only on this device.">
-            <input type="checkbox" id="memory-toggle" checked aria-describedby="memory-toggle-hint" />
-            <span>Remember</span>
-            <span id="memory-toggle-hint" class="sr-only">Let Ickle remember things you tell it across chats, stored only on this device.</span>
-          </label>
-          <label class="toggle" title="Let Ickle look things up on the web when it needs current information.">
-            <input type="checkbox" id="web-toggle" checked aria-describedby="web-toggle-hint" />
-            <span>Web search</span>
-            <span id="web-toggle-hint" class="sr-only">Let Ickle look things up on the web when it needs current information.</span>
-          </label>
-          <label class="toggle" title="Show Ickle's step-by-step reasoning before its final answer, when available.">
-            <input type="checkbox" id="thinking-toggle" checked aria-describedby="thinking-toggle-hint" />
-            <span>Show thinking</span>
-            <span id="thinking-toggle-hint" class="sr-only">Show Ickle's step-by-step reasoning before its final answer, when available.</span>
-          </label>
-          <label class="toggle" title="Let Ickle take multiple steps and use tools (web lookup, memory search) to answer, showing each step it took.">
-            <input type="checkbox" id="agent-toggle" aria-describedby="agent-toggle-hint" />
-            <span>Agent mode</span>
-            <span id="agent-toggle-hint" class="sr-only">Let Ickle take multiple steps and use tools to answer, showing each step it took.</span>
-          </label>
-          <label class="toggle" id="code-exec-toggle-label" title="Let Ickle read, write, and run code on this device while in Agent mode. Only takes effect together with Agent mode." hidden>
-            <input type="checkbox" id="code-exec-toggle" aria-describedby="code-exec-toggle-hint" />
-            <span>Allow code execution</span>
-            <span id="code-exec-toggle-hint" class="sr-only">Let Ickle read, write, and run code on this device while in Agent mode.</span>
-          </label>
-          <label class="toggle" title="Show exactly what the model generates, without the filter that normally replaces garbled or off-topic output with an honest 'not sure' message. Useful for judging a freshly trained model's real ability -- off by default because raw output from an undertrained model can look broken.">
-            <input type="checkbox" id="raw-output-toggle" aria-describedby="raw-output-toggle-hint" />
-            <span>Show raw output</span>
-            <span id="raw-output-toggle-hint" class="sr-only">Show exactly what the model generates, skipping the filter that normally replaces low-quality output with an uncertainty message.</span>
-          </label>
+          <div class="model-control">
+            <label class="model-picker-label" for="model-select">Model</label>
+            <select id="model-select" class="model-picker" aria-label="Choose which trained model answers you"></select>
+          </div>
+          <div class="capabilities-shell">
+            <button id="capabilities-button" class="topbar-action" type="button" aria-expanded="false" aria-controls="capabilities-panel">
+              <svg class="capabilities-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/>
+              </svg>
+              <span>Capabilities</span>
+              <span id="capabilities-count" class="capabilities-count" aria-hidden="true">3</span>
+            </button>
+            <section id="capabilities-panel" class="capabilities-panel" hidden aria-label="Chat capabilities">
+              <div class="capabilities-heading">
+                <div>
+                  <strong>Capabilities</strong>
+                  <p>Choose how this chat can work.</p>
+                </div>
+                <button id="capabilities-close" type="button" aria-label="Close capabilities">&times;</button>
+              </div>
+              <label class="capability-row" title="Let Ickle remember things you tell it across chats, stored only on this device.">
+                <span><strong>Memory</strong><small>Use facts saved on this device</small></span>
+                <input type="checkbox" id="memory-toggle" checked aria-describedby="memory-toggle-hint" />
+                <span id="memory-toggle-hint" class="sr-only">Let Ickle remember things you tell it across chats, stored only on this device.</span>
+              </label>
+              <label class="capability-row" title="Let Ickle look things up on the web when it needs current information.">
+                <span><strong>Web access</strong><small>Look up current information</small></span>
+                <input type="checkbox" id="web-toggle" checked aria-describedby="web-toggle-hint" />
+                <span id="web-toggle-hint" class="sr-only">Let Ickle look things up on the web when it needs current information.</span>
+              </label>
+              <label class="capability-row" title="Show the steps and tool activity Ickle used before its answer.">
+                <span><strong>Show process</strong><small>Expose reasoning and tool activity</small></span>
+                <input type="checkbox" id="thinking-toggle" checked aria-describedby="thinking-toggle-hint" />
+                <span id="thinking-toggle-hint" class="sr-only">Show Ickle's process before its final answer, when available.</span>
+              </label>
+              <label class="capability-row" title="Let Ickle take multiple steps and use tools to answer.">
+                <span><strong>Agent mode</strong><small>Plan, use tools and iterate</small></span>
+                <input type="checkbox" id="agent-toggle" aria-describedby="agent-toggle-hint" />
+                <span id="agent-toggle-hint" class="sr-only">Let Ickle take multiple steps and use tools to answer.</span>
+              </label>
+              <div id="agent-capabilities" class="agent-capabilities" hidden>
+                <label class="capability-row capability-row-danger" id="code-exec-toggle-label" title="Let Ickle read, write, and run code in the project workspace.">
+                  <span><strong>Workspace execution</strong><small>Read, edit and run project code</small></span>
+                  <input type="checkbox" id="code-exec-toggle" aria-describedby="code-exec-toggle-hint" />
+                  <span id="code-exec-toggle-hint" class="sr-only">Let Ickle read, write, and run code in the project workspace while in Agent mode.</span>
+                </label>
+              </div>
+              <label class="capability-row" title="Show exactly what the model generates without the normal quality fallback.">
+                <span><strong>Raw model output</strong><small>Bypass the low-quality fallback</small></span>
+                <input type="checkbox" id="raw-output-toggle" aria-describedby="raw-output-toggle-hint" />
+                <span id="raw-output-toggle-hint" class="sr-only">Show exactly what the model generates, skipping the low-quality fallback.</span>
+              </label>
+            </section>
+          </div>
+          <button id="manage-button" class="manage-button" type="button" hidden>Control room</button>
         </div>
       </header>
 
@@ -74,7 +96,7 @@
 
       <main id="chat-area" class="chat-area">
         <div id="onboarding-banner" class="onboarding-banner" hidden>
-          <p>Ickle can optionally connect to peers you know (or who know you) to share training and model improvements — nothing is sent anywhere unless you turn it on and add a peer in <strong>Manage → Network</strong>.</p>
+          <p>Ickle can optionally join a trackerless public swarm to exchange signed model improvements and shared knowledge directly — nothing leaves this device unless you opt in under <strong>Control room → Network</strong>.</p>
           <div class="onboarding-banner-actions">
             <button id="onboarding-learn-more" type="button">Show me</button>
             <button id="onboarding-dismiss" type="button" aria-label="Dismiss">&times;</button>
@@ -118,21 +140,27 @@
   <div id="manage-scrim" class="manage-scrim" hidden></div>
   <div id="manage-modal" class="manage-modal" hidden role="dialog" aria-modal="true" aria-labelledby="manage-title">
     <div class="manage-header">
-      <h2 id="manage-title">Manage Ickle</h2>
+      <div>
+        <span class="manage-kicker">LOCAL SYSTEM</span>
+        <h2 id="manage-title">Ickle control room</h2>
+      </div>
       <button id="manage-close" class="manage-close" type="button" aria-label="Close">&times;</button>
     </div>
-    <div class="manage-tabs">
+    <div class="manage-tabs" role="tablist" aria-label="Control room sections">
+      <span class="manage-nav-label">Intelligence</span>
       <button class="manage-tab active" data-tab="train" type="button">Training</button>
       <button class="manage-tab" data-tab="teach" type="button">Teach</button>
-      <button class="manage-tab" data-tab="tasks" type="button">Background tasks</button>
-      <button class="manage-tab" data-tab="models" type="button">Models</button>
-      <button class="manage-tab" data-tab="memory" type="button">Memory</button>
-      <button class="manage-tab" data-tab="dashboard" type="button">Dashboard</button>
-      <button class="manage-tab" data-tab="network" type="button">Network</button>
-      <button class="manage-tab" data-tab="addons" type="button">Add-ons</button>
-      <button class="manage-tab" data-tab="sharing" type="button">Sharing</button>
       <button class="manage-tab" data-tab="research" type="button">Research</button>
       <button class="manage-tab" data-tab="automation" type="button">Automation</button>
+      <span class="manage-nav-label">System</span>
+      <button class="manage-tab" data-tab="models" type="button">Models</button>
+      <button class="manage-tab" data-tab="memory" type="button">Memory</button>
+      <button class="manage-tab" data-tab="tasks" type="button">Activity</button>
+      <button class="manage-tab" data-tab="dashboard" type="button">Resources</button>
+      <span class="manage-nav-label">Commons</span>
+      <button class="manage-tab" data-tab="network" type="button">Network</button>
+      <button class="manage-tab" data-tab="sharing" type="button">Sharing</button>
+      <button class="manage-tab" data-tab="addons" type="button">Knowledge modules</button>
     </div>
 
     <div id="manage-tab-train" class="manage-tab-panel">
@@ -352,30 +380,44 @@
     </div>
 
     <div id="manage-tab-network" class="manage-tab-panel" hidden>
-      <p class="hint-text">Ickle can share training and models directly with peers whose address you add (or who add yours) -- the same way a torrent gets faster with more people sharing it. There's no automatic public directory yet, so this connects to people you know, not strangers on the internet.</p>
-      <label class="toggle" id="network-join-toggle-label">
-        <input type="checkbox" id="network-join-toggle" />
-        <span>Join peer network</span>
-      </label>
-      <div id="network-summary"></div>
-      <div class="network-peers-section">
-        <p class="hint-text">Known peers</p>
+      <section class="network-hero">
+        <div class="network-hero-copy">
+          <span class="section-kicker">TRACKERLESS · PUBLIC · OPT-IN</span>
+          <h3>Public Ickle swarm</h3>
+          <p>Find other Ickle nodes through the decentralised BitTorrent DHT, then exchange signed models, training and shared reviews directly. There is no Ickle account or central peer directory.</p>
+        </div>
+        <label class="network-master-switch" id="network-join-toggle-label">
+          <input type="checkbox" id="network-join-toggle" />
+          <span class="network-switch-track" aria-hidden="true"></span>
+          <span id="network-switch-label">Join swarm</span>
+        </label>
+      </section>
+      <div id="network-summary" class="network-status-board" aria-live="polite"></div>
+      <div class="network-toolbar">
+        <button id="network-refresh-btn" class="secondary-button" type="button">Refresh discovery</button>
+        <p id="network-refresh-note" class="hint-text"></p>
+      </div>
+      <p class="network-privacy-note"><strong>What becomes public:</strong> joining announces this node's public IP and swarm port, as every torrent-style network must. Prompts, chats, local reviews and model files are not placed in the DHT.</p>
+
+      <details class="control-section compact-details">
+        <summary>Direct peer connection <span>Advanced / private networks</span></summary>
+        <p class="hint-text">Add a specific node when you want a private bootstrap, are on the same LAN, or the public DHT is blocked.</p>
         <form id="network-add-peer-form" class="network-add-peer-form">
           <input id="network-add-peer-input" type="text" placeholder="host:port, e.g. 192.168.1.20:8790" aria-label="Peer host and port to add" />
-          <button id="network-add-peer-btn" type="submit">Add</button>
+          <button id="network-add-peer-btn" type="submit">Connect</button>
         </form>
         <p id="network-add-peer-error" class="manage-error" hidden></p>
         <div id="network-peers-list" class="tasks-list"></div>
-        <p id="network-peers-empty" class="hint-text" hidden>No peers added yet.</p>
-      </div>
+        <p id="network-peers-empty" class="hint-text" hidden>No direct peers configured.</p>
+      </details>
 
-      <details class="advanced-details">
+      <details class="control-section compact-details">
         <summary>Advanced: centralized training coordinator</summary>
         <p class="hint-text">A separate, CLI-only way to federate full training rounds across devices through one coordinator, instead of the peer-to-peer sharing above. Set up with <code>python -m src.app federated-server</code> / <code>federated-client</code>. This just shows its status if you're already running one.</p>
         <p id="federated-coordinator-status" class="hint-text">Loading...</p>
       </details>
 
-      <div class="network-peers-section">
+      <div class="control-section">
         <p class="hint-text">Peer teaching (co-distillation): Ickle's federated training above only pools peers running the exact same model architecture. This lets <strong>any</strong> peer running "infer serve" -- whatever size or shape their model is -- contribute candidate answers. Agreement can filter obvious outliers, but no longer creates trust by itself; candidates still pass the normal review/rollback safety checks before anything is learned.</p>
         <button id="codistill-run-btn" type="button">Run a teaching round now</button>
         <p id="codistill-run-status" class="hint-text"></p>
@@ -384,7 +426,7 @@
         <div id="codistill-trust-list" class="tasks-list"></div>
       </div>
 
-      <div class="network-peers-section commons-section">
+      <div class="control-section commons-section">
         <p class="hint-text"><strong>Epistemic Commons:</strong> corrections you make in an answer's “Inspect claims” panel form a signed, conflict-preserving knowledge layer. Reviews stay on this device unless you explicitly share each one. Peer reviews never change Ickle's answers until you choose “Use locally”.</p>
         <div class="commons-actions">
           <button id="commons-sync-btn" type="button">Sync shared reviews now</button>

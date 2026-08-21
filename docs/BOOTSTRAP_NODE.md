@@ -1,23 +1,18 @@
-# Running a bootstrap peer
+# Running a direct/private bootstrap peer
 
 Ickle's swarm (`src/federated/swarm.py`) and inference-sharing node
 (`src/federated/inference_swarm.py`) are genuinely serverless peer-to-peer:
 two Ickle instances that know each other's address can connect and share
 training deltas or answer prompts for each other directly, no company or
-central server involved. What they still need is **at least one already-known
-address to start from** — `peer_discovery.py`'s DHT has no built-in public
-directory, so a brand-new node has nobody to ask.
+central server involved. The main model/training swarm now solves fresh-node
+discovery through the trackerless BitTorrent Mainline DHT; see
+[`PUBLIC_SWARM.md`](PUBLIC_SWARM.md). A manually configured bootstrap remains
+useful for private communities, LANs, blocked-UDP environments, testing, and
+the separate inference-serving CLI.
 
-This is not a limitation Ickle can code its way around: a global,
-zero-config "find any Ickle peer on the internet" directory would require
-someone to operate a permanent, publicly-trusted rendezvous service, which is
-an infrastructure and hosting decision, not a software one. What *can* be
-built in software — and is what this page covers — is making it trivial for
-anyone (a friend group, a team, a community) to stand up their own long-lived
-peer that others add once and then discover each other's peers through
-(`_join_via_bootstrap` in `swarm.py` pulls every bootstrap peer's own peer
-list, so joining through one existing member transitively connects you to
-everyone it already knows).
+This page covers that explicit path: any friend group, team, or community can
+run a long-lived peer whose address is shared directly. It does not depend on
+the public DHT and can stay entirely inside a private network.
 
 ## What "bootstrap peer" means here
 
@@ -45,7 +40,7 @@ manual router configuration:
 Both are best-effort and non-fatal (`src/federated/nat_traversal.py`): if
 UPnP is disabled on your router or STUN can't reach the internet, the node
 falls back to its previous behavior instead of failing to start. They're
-opt-in (`--nat-traversal` / the Manage → Network "Join peer network" toggle)
+opt-in (`--nat-traversal` / the Control room → Network "Join swarm" switch)
 because they make outbound network calls and (for UPnP) a change to your
 router's port-forwarding table — not something to do silently.
 
@@ -66,6 +61,9 @@ python -m src.federated.swarm start \
 
 Add `--nat-traversal` instead of `--external-host` if you're behind a home
 router rather than a VPS with a public IP directly attached.
+
+Add `--public-discovery` if the same node should also announce itself through
+the public trackerless swarm. Omit it for a direct/private bootstrap.
 
 To also serve as an inference-sharing bootstrap peer (see
 [`INFERENCE_SHARING.md`](INFERENCE_SHARING.md)):
@@ -105,20 +103,22 @@ sudo systemctl enable --now ickle-swarm
 ## Sharing it
 
 Give the address (`host:port`) to whoever you want on the network. From the
-web UI: **Manage → Network → Add a peer**. From the CLI:
+web UI: **Control room → Network → Direct peer connection**. From the CLI:
 
 ```bash
 python -m src.app swarm start --bootstrap your-bootstrap-host:8790 ...
 ```
 
-Anyone who adds it joins transitively into everyone that bootstrap peer
-already knows about, not just the bootstrap peer itself.
+Direct bootstraps can introduce peers to the local application-level store.
+Public-DHT candidates use a stricter path and do not transitively trust a
+stranger's returned peer list.
 
 ## What this is not
 
-- Not an Ickle-operated public service — nobody hosts one by default, and
-  this project doesn't ship a hardcoded address pointing at one. You (or
-  whoever you trust) run it.
+- Not required for the main public model/training swarm. The Mainline DHT is
+  now the default discovery path after a user explicitly joins.
+- Not an Ickle-operated public service. You (or whoever you trust) run this
+  direct bootstrap and decide who receives its address.
 - Not Sybil- or abuse-resistant. A bootstrap peer's address, once shared,
   can be added by anyone who has it. Share it the way you'd share access to
   any other resource you control — with people you trust, or behind

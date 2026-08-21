@@ -7,6 +7,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from src.federated.identity import SwarmIdentity, create_identity, ensure_identity, load_identity, save_identity
 from src.federated.keys import create_ed_identity
@@ -167,6 +168,51 @@ class SwarmNodeTests(unittest.TestCase):
         self.assertTrue(node._running)
         node.stop()
         self.assertFalse(node._running)
+
+    def test_nat_negotiation_does_not_block_node_start(self):
+        identity = create_identity(label="nonblocking-network")
+        node = SwarmNode(
+            identity=identity,
+            data_dir=str(self.data_dir),
+            host="127.0.0.1",
+            port=0,
+            external_host="127.0.0.1",
+        )
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_connectivity():
+            entered.set()
+            release.wait(2)
+
+        node._attempt_nat_traversal = slow_connectivity
+        node._start_public_discovery = mock.Mock()
+        started = time.monotonic()
+        node.start(attempt_nat_traversal=True, public_discovery=True)
+        try:
+            self.assertLess(time.monotonic() - started, 0.5)
+            self.assertTrue(entered.wait(1))
+            self.assertTrue(node._running)
+            self.assertEqual(node.public_discovery_status()["phase"], "starting")
+            release.set()
+            node._connectivity_thread.join(2)
+            node._start_public_discovery.assert_called_once_with()
+        finally:
+            release.set()
+            node.stop()
+
+    def test_public_candidate_probe_rejects_non_public_targets_without_request(self):
+        node = SwarmNode(
+            identity=create_identity(label="candidate-filter"),
+            data_dir=str(self.data_dir),
+            host="127.0.0.1",
+            port=0,
+        )
+        with mock.patch("src.federated.swarm.urllib.request.urlopen") as urlopen:
+            self.assertIsNone(node._probe_public_candidate(("127.0.0.1", 8790)))
+            self.assertIsNone(node._probe_public_candidate(("192.168.1.4", 8790)))
+            self.assertIsNone(node._probe_public_candidate(("not-an-ip", 8790)))
+        urlopen.assert_not_called()
 
     def test_import_bundle(self):
         identity = create_identity()

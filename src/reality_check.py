@@ -129,6 +129,27 @@ def collect_checks() -> list[CheckItem]:
 
     checks.append(_federated_intake_check())
 
+    public_swarm_parts = {
+        "Mainline DHT client": Path("src/federated/public_dht.py").exists(),
+        "NAT traversal": Path("src/federated/nat_traversal.py").exists(),
+        "control-room interface": Path("web/index.html").exists()
+        and "network-status-board" in Path("web/index.html").read_text(encoding="utf-8"),
+        "threat-model documentation": Path("docs/PUBLIC_SWARM.md").exists(),
+    }
+    public_swarm_missing = [name for name, present in public_swarm_parts.items() if not present]
+    checks.append(
+        CheckItem(
+            area="public_swarm_discovery",
+            status="implemented" if not public_swarm_missing else "incomplete",
+            detail=(
+                "Opt-in Mainline-DHT rendezvous, Ickle endpoint verification, NAT status, "
+                "and direct-peer fallback are present."
+                if not public_swarm_missing
+                else f"Missing: {', '.join(public_swarm_missing)}."
+            ),
+        )
+    )
+
     commons_parts = {
         "answer map": Path("src/epistemics.py").exists(),
         "signed event ledger": Path("src/federated/knowledge_commons.py").exists(),
@@ -142,7 +163,8 @@ def collect_checks() -> list[CheckItem]:
             area="epistemic_commons",
             status="implemented" if not commons_missing else "incomplete",
             detail=(
-                "Inspectable candidate claims, signed local-by-default review, conflict-preserving peer merge, and explicit adoption are present."
+                "Inspectable candidate claims, signed local-by-default review, "
+                "conflict-preserving peer merge, and explicit adoption are present."
                 if not commons_missing
                 else f"Missing: {', '.join(commons_missing)}."
             ),

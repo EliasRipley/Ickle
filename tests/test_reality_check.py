@@ -10,7 +10,9 @@ class RealityCheckTests(unittest.TestCase):
         self.assertIn("core_model", areas)
         self.assertIn("autonomous_learning", areas)
         self.assertIn("epistemic_commons", areas)
+        self.assertIn("public_swarm_discovery", areas)
         self.assertEqual(areas["epistemic_commons"].status, "implemented")
+        self.assertEqual(areas["public_swarm_discovery"].status, "implemented")
         self.assertEqual(areas["autonomous_learning"].status, "prototype")
 
 

@@ -723,7 +723,7 @@ def find_free_port(preferred: int) -> int:
 def start_embedded_control_server(*, host: str, preferred_port: int, web_root: str):
     """Boot the control API (training/tasks/network/etc.) as a background
     thread alongside the chat server, so a plain `serve-web` browser tab gets
-    the same Manage panel capability the desktop app has always had, instead
+    the same Control room capability the desktop app has always had, instead
     of that panel being gated behind desktop_app.py specifically. Lazy import
     keeps `import src.serve_web` itself cheap for callers/tests that only
     need the chat server (serve_control.py pulls in federated/swarm/task
@@ -747,7 +747,7 @@ def main():
     parser.add_argument(
         "--no-control",
         action="store_true",
-        help="Chat only -- don't also start the control API (Training/Tasks/Network/Sharing/etc. in the Manage panel).",
+        help="Chat only -- don't also start the control API (Training/Activity/Network/Sharing/etc. in the Control room).",
     )
     args = parser.parse_args()
 
@@ -759,7 +759,7 @@ def main():
             host=args.host, preferred_port=args.control_port, web_root=args.web_root
         )
         server.control_port = control_port  # type: ignore[attr-defined]
-        print(f"Ickle control API: http://{args.host}:{control_port} (Manage panel: Training/Tasks/Network/Sharing/etc.)")
+        print(f"Ickle control API: http://{args.host}:{control_port} (Control room: Training/Activity/Network/Sharing/etc.)")
 
     print(f"Ickle chat: http://{args.host}:{args.port}")
     print("API: /api/status, /api/chat, /api/chat/stream, /api/models, /api/flags, /api/control-port, /api/feedback, /api/epistemics/reviews")

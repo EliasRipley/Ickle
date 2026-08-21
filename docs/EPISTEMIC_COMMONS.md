@@ -96,7 +96,7 @@ GET  /torickle/v1/commons/events
 POST /torickle/v1/commons/events
 ```
 
-The web app's **Manage -> Network -> Epistemic Commons** panel performs an
+The web app's **Control room -> Network -> Epistemic Commons** panel performs an
 explicit bidirectional sync with configured peers. No central registry or
 Ickle-operated service is involved.
 

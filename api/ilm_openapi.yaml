@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Ickle ILM Local API
-  version: 0.3.0
+  version: 0.4.0
   description: >
     Two local HTTP servers, not one API: serve-web (chat, default port 8787)
     and serve-control (training/tasks/memory/network/maintenance, default
@@ -404,9 +404,9 @@ paths:
   # --- serve-control only: P2P swarm (torickle/delta sharing) ---
   /api/torickle/status:
     get:
-      summary: Real-time swarm status -- also the source for the Network tab's peer count and the Sharing tab's bundle count
+      summary: Real-time public-swarm, NAT reachability, verified-peer and local-sharing status
       responses:
-        '200': { description: '{active, enabled, peer_id, bundles_served, peers_known, host, port, external_host, known_peers}' }
+        '200': { description: '{active, enabled, peer_id, bundles_served, peers_known, host, port, external_host, reachability, port_mapped, known_peers, public_discovery, commons}' }
   /api/torickle/bundles:
     get:
       summary: List locally-held torickle bundles
@@ -443,7 +443,7 @@ paths:
         '200': { description: Reassembly result }
   /api/swarm/join:
     post:
-      summary: Turn on peer-network participation (binds externally, joins known peers)
+      summary: Join the public trackerless swarm (external bind, NAT traversal, Mainline-DHT discovery and direct peers)
       responses:
         '200': { description: Swarm status after joining }
   /api/swarm/leave:
@@ -451,6 +451,11 @@ paths:
       summary: Turn off peer-network participation (back to loopback-only)
       responses:
         '200': { description: Swarm status after leaving }
+  /api/swarm/refresh:
+    post:
+      summary: Trigger a fresh public-DHT lookup and announcement in the background
+      responses:
+        '200': { description: Current swarm status after scheduling refresh }
   /api/swarm/peers/add:
     post:
       summary: Add a known peer address (host:port) and immediately try to join through it

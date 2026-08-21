@@ -16,7 +16,7 @@ This is an early-stage research/engineering project, not a finished product. Con
 
 - **No trained model checkpoints ship in this checkout.** `models/` is empty by design — train your own from scratch with the commands below, or connect to the federated network once it has active participants.
 - **Small local checkpoints, not frontier capability.** Even a fully trained run here produces a small model sized to run on personal hardware, not something comparable to large hosted models. Closing that gap is a long-term, multi-stage goal — see [docs/HEAVY_TRAINING_BLUEPRINT_2026.md](docs/HEAVY_TRAINING_BLUEPRINT_2026.md) for the credible next milestones (reproducible training manifests, contamination-resistant evaluation, promotion gating, secure aggregation) rather than a promise of immediate parity with big-tech models.
-- **The P2P federated network and inference-sharing network are both functional but need active participants to be useful.** A single-user install works standalone; the network features (`federated-server`/`federated-client`, `infer serve`/`find`/`ask`) are there for when you want to pool compute with others.
+- **The public P2P swarm is functional but needs active participants to be useful.** Joining uses trackerless Mainline-DHT discovery rather than an Ickle account or central peer directory; a single-user install still works fully offline. Dedicated inference serving (`infer serve`/`find`/`ask`) remains an explicit opt-in because sending a prompt to another person's model has a different privacy boundary.
 - **The web app is the primary, complete interface.** Chat plus every management feature (training, tasks, models, memory, network status, sharing) is reachable from a single browser tab or the desktop app — see below.
 
 If you're evaluating this project, treat it as infrastructure for an ambitious goal that's still being built, not as a drop-in chatbot replacement today.
@@ -71,7 +71,7 @@ python -m src.train --data data/corpus.txt --out models/final.pt --steps 2000
 
 ## Web UI
 
-The full app — chat plus the Manage panel (training, background tasks, models, memory, hardware dashboard, federated network status, add-ons, and P2P sharing) — is available two ways: as a native desktop window (`app`, no browser needed) or as a regular web server you open in a browser tab (`serve-web`). Both give you the same features; `serve-web` starts its own management API automatically, so a plain browser tab is not a reduced experience.
+The full app — chat plus the Control room (training, activity, models, memory, resources, public-swarm status, knowledge modules, and P2P sharing) — is available two ways: as a native desktop window (`app`, no browser needed) or as a regular web server you open in a browser tab (`serve-web`). Both give you the same features; `serve-web` starts its own control API automatically, so a plain browser tab is not a reduced experience.
 
 ```bash
 # Native window (recommended)
@@ -87,13 +87,27 @@ python -m src.app serve-web --port 8787 --no-control
 
 ### Chat capabilities
 
-Beyond plain chat, the web UI has three opt-in toggles next to the prompt box:
+Beyond plain chat, the stable **Capabilities** panel controls memory, web access, process visibility, Agent mode, workspace execution, and raw model output without expanding the chat header:
 
 - **Agent mode** — instead of a single forward pass, Ickle runs an iterative tool-calling loop (`src/agent_loop.py`) that can read the web, search news, search saved memory, and reason step by step before answering. The "Show Ickle's thinking" panel then shows the real step-by-step trace (each tool called, its parameters, and its result or error), not just a single reasoning pass.
 - **Image attach** — attach an image (screenshot, photo, document) and Ickle extracts any visible text (OCR) and generates a short description of its contents (`src/tools/image_reader.py`), feeding both into the model as context. Ickle's own model stays text-only; this wraps `easyocr` + a BLIP captioning model the same way `web_read`/`news_search` wrap external capabilities. Needs `pip install -r requirements-vision.txt`.
 - **Allow code execution** (only meaningful together with Agent mode) — lets Ickle read, write, and edit files and run shell commands in the local project workspace (`src/code_agent.py`, gated through a workspace-containment check so it can't read/write outside the project root). Off by default; read-only file access (`read_file`/`search_repo`) is available in Agent mode regardless of this toggle, matching how other coding assistants separate "can look" from "can change things."
 
 Responses containing fenced code blocks render as proper monospace blocks with a Copy button, not raw backticks.
+
+### Public peer discovery
+
+**Control room → Network → Join swarm** joins the trackerless public Ickle
+swarm. A fresh node looks up Ickle's versioned network key through the
+BitTorrent Mainline DHT, announces its swarm port, verifies returned endpoints
+as real Ickle nodes, and then exchanges signed artifacts directly. Manual
+`host:port` entry is now an advanced fallback for private networks and blocked
+DHT access—not the main discovery mechanism.
+
+Joining makes the node's public IP and port discoverable, as torrent-style
+connectivity necessarily does. Chats, prompts, private reviews and model bytes
+are not stored in the DHT. See [Public Ickle swarm](docs/PUBLIC_SWARM.md) for
+the protocol, NAT behaviour, threat model, and honest limitations.
 
 Every non-empty answer can also expose an **answer map**: deterministic candidate claims, related retrieved sources, unresolved claims, and signed human reviews. You can support, dispute, or correct one claim without retraining the whole model. Reviews remain local unless you explicitly share that individual event; peer reviews preserve conflicts and cannot steer your Ickle until you adopt one. See [Epistemic Commons](docs/EPISTEMIC_COMMONS.md).
 
@@ -134,7 +148,7 @@ python -m src.app infer ask "What is RoPE?" --bootstrap peer-host:8791 --model-h
 python -m src.app infer report
 ```
 
-The same ratio is also visible in the web app's Manage → Sharing tab. See [docs/INFERENCE_SHARING.md](docs/INFERENCE_SHARING.md) for the protocol and trust model.
+The same ratio is also visible in the web app's Control room → Sharing view. See [docs/INFERENCE_SHARING.md](docs/INFERENCE_SHARING.md) for the protocol and trust model.
 
 Live swarm answers show claim-level common ground and distinct contributions rather than treating majority agreement as truth. Peer agreement does not automatically create reputation; your Helpful / Not helpful reviews update your own per-domain trust store.
 
@@ -256,7 +270,7 @@ The rest of this README is about what Ickle does and how to run it. This section
 - **INT8 quantization**: Post-training for faster CPU inference
 - **ONNX export**: `python -m src.app export-onnx --model models/tiny.pt --out models/tiny.onnx`
 - **REPL hub**: `python -m src.app hub` for interactive chat
-- **Manage panel**: training, tasks, models, memory, hardware dashboard, network status, and P2P sharing, all from the web UI (`app` or `serve-web`)
+- **Control room**: training, activity, models, memory, resources, public-swarm health, and P2P sharing, all from the web UI (`app` or `serve-web`)
 - **Skill system**: Learn, store, and activate domain-specific skills
 - **Model library**: Local-first package sharing with export/install/validate
 - **Autodidact loop**: Self-improvement via objective pass/fail feedback
