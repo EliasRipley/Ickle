@@ -5,12 +5,36 @@ from urllib.error import HTTPError
 
 from src.task_actions import (
     _default_stream_max_chars,
+    _detect_no_steps_executed,
     _looks_useful_fact,
     _request_json,
     _wiki_url_from_title,
     infer_task_from_instruction,
     run_task,
 )
+
+
+class DetectNoStepsExecutedTests(unittest.TestCase):
+    """Regression coverage for a real incident: a 'retrain' meant to pick up
+    a bug fix silently resumed a stale checkpoint from an unrelated earlier
+    run at the same out_model path, saw it was already at/past the target
+    step, and exited having trained nothing -- while task status still
+    reported "completed", identical to a real successful run."""
+
+    def test_detects_the_real_log_line(self):
+        tail = ["Building optimizer...", "no training steps executed; checkpoint already at step=1199", "saved model: x.pt"]
+        self.assertTrue(_detect_no_steps_executed(tail))
+
+    def test_case_insensitive(self):
+        tail = ["NO TRAINING STEPS EXECUTED; checkpoint already at step=5"]
+        self.assertTrue(_detect_no_steps_executed(tail))
+
+    def test_normal_successful_run_is_not_flagged(self):
+        tail = ["step=1190 loss=2.1", "step=1199 train_loss=2.05", "saved model: x.pt"]
+        self.assertFalse(_detect_no_steps_executed(tail))
+
+    def test_empty_log_is_not_flagged(self):
+        self.assertFalse(_detect_no_steps_executed([]))
 
 
 class DefaultStreamMaxCharsTests(unittest.TestCase):

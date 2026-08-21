@@ -1799,6 +1799,15 @@ function renderTrainActive(tasks, liveStatus) {
     } else if (mostRecent && mostRecent.status === "cancelled") {
       trainError.textContent = "Training was cancelled.";
       trainError.hidden = false;
+    } else if (mostRecent && mostRecent.status === "completed" && mostRecent.result && mostRecent.result.no_steps_executed) {
+      // A stale checkpoint at the same out_model path can silently outrank
+      // an explicit fresh start/init_model: the run resumes it, finds it's
+      // already at or past the target step, and exits having trained
+      // nothing -- while still reporting "completed" like a real success.
+      trainError.textContent =
+        "This run finished without training anything new -- it resumed an existing checkpoint " +
+        "already at the target step. Delete the stale checkpoint or use a different output name to force a fresh run.";
+      trainError.hidden = false;
     }
     return;
   }

@@ -1770,6 +1770,15 @@ def _default_stream_max_chars(steps: int, batch_size: int, block_size: int) -> i
     return max(_STREAM_MAX_CHARS_FLOOR, min(_STREAM_MAX_CHARS_CEILING, int(raw)))
 
 
+def _detect_no_steps_executed(log_lines: list[str]) -> bool:
+    """True when train.py's subprocess output shows it resumed a checkpoint
+    already at or past the requested step count and exited without training
+    -- which happens silently whenever out_model collides with a stale
+    checkpoint from an unrelated earlier run, even if this run explicitly
+    asked for a fresh start via init_model."""
+    return any("no training steps executed" in line.lower() for line in log_lines)
+
+
 def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[str, Any]:
     data_path = str(payload.get("data_path", "")).strip()
     out_model = str(payload.get("out_model", "")).strip()
@@ -2039,13 +2048,29 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
                     f"promoted={bool(promotion_gate_result.get('promoted', False))}"
                 )
 
-    if interrupted:
+    # A stale checkpoint left over from an earlier run at the same out_model
+    # path can silently outrank an explicitly-requested init_model/fresh
+    # start: resume_if_possible finds it, the process loads it, sees it's
+    # already at or past the requested step count, and exits having done
+    # nothing -- while still reporting task status "completed", identical to
+    # a real successful run. Confirmed live: a "retrain" meant to pick up a
+    # bug fix silently no-op'd this way and the bad model went untouched.
+    no_steps_executed = _detect_no_steps_executed(tail)
+    if no_steps_executed:
+        progress(
+            "Warning: this run executed zero new training steps -- it resumed a checkpoint "
+            "already at or past the requested step count instead of training. If a fresh "
+            "start was intended, delete the stale checkpoint_path first or pass "
+            "resume_if_possible=false."
+        )
+    elif interrupted:
         progress("Training finalized after graceful early stop.")
     else:
         progress("Training completed")
     return {
         "out_model": out_model,
         "interrupted": interrupted,
+        "no_steps_executed": no_steps_executed,
         "candidate_model_for_review": candidate_model_for_review or None,
         "promotion_gate": promotion_gate_result,
         "steps": steps,
