@@ -545,7 +545,22 @@ def main():
         ds_config = args.stream_config.strip() if hasattr(args, "stream_config") and args.stream_config else None
         if ds_config:
             ds_kwargs["name"] = ds_config
-        stream = load_dataset(**ds_kwargs)
+        try:
+            stream = load_dataset(**ds_kwargs)
+        except ValueError as exc:
+            msg = str(exc).lower()
+            if "namespace/name" in msg or "repository id must be" in msg:
+                raise ValueError(
+                    f"'{args.stream_dataset}' isn't a valid Hugging Face dataset id -- it needs an "
+                    f"organization/user prefix (e.g. 'Salesforce/wikitext', not 'wikitext'). "
+                    f"Original error: {exc}"
+                ) from exc
+            if not ds_config and "config" in msg:
+                raise ValueError(
+                    f"Dataset '{args.stream_dataset}' requires a config/subset name "
+                    f"(e.g. --stream-config wikitext-2-raw-v1). Original error: {exc}"
+                ) from exc
+            raise
         text_field = args.stream_field.strip() or "text"
         stream_template = (args.stream_template or "").strip()
         max_chars = int(args.stream_max_chars)
@@ -1278,7 +1293,17 @@ def main():
             delta_id = str(Path(args.out).stem).replace(".", "_").replace(" ", "_")[:60]
             corpus_sample = text[:3000] if len(text) > 100 else "English language training data"
             knowledge = extract_structured_knowledge(corpus_sample)
-            domain_desc = knowledge.get("domain_description", f"Trained on {len(text)} chars of English text")
+            provenance_label = getattr(args, "stream_dataset", "") or "a local corpus"
+            if knowledge.get("method") == "fallback":
+                # No teacher was configured, so there is no real topic
+                # classification to show -- the fallback's "domain_description"
+                # is just an echo of whatever text happened to be first in the
+                # corpus sample (see knowledge_extraction._fallback_extraction),
+                # which reads as a garbled, misleading title (e.g. a scraped
+                # news snippet) rather than an honest "we don't know the topic."
+                domain_desc = f"Uncategorized -- no topic classifier configured (trained on {len(text)} chars from {provenance_label})"
+            else:
+                domain_desc = knowledge.get("domain_description") or f"Trained on {len(text)} chars from {provenance_label}"
             mgr.register_delta(
                 delta_id=delta_id,
                 domain_description=domain_desc[:300],

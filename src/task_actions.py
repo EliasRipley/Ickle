@@ -23,6 +23,7 @@ from src.build_smart_corpus import build_smart_corpus
 from src.conversation_focus import build_focus_corpus_file, merge_dialog_corpora
 from src.continual_guard import run_guarded_step
 from src.verified_corrections import build_verified_corrections_corpus_file
+from src.disagreement_curriculum import build_hedge_corpus_file
 from src.dynamic_web_reader import read_url_dynamic
 from src.evidence_policy import (
     claim_signature,
@@ -2157,6 +2158,21 @@ def run_continual_guard_task(payload: dict[str, Any], progress: ProgressCb) -> d
         if int(verified_stats.get("written_pairs", 0)) > 0:
             corpora.append(str(verified_stats.get("out_path", verified_corrections_path)))
 
+    auto_include_disagreement_hedges = bool(payload.get("auto_include_disagreement_hedges", True))
+    disagreement_hedges_path = str(
+        payload.get("disagreement_hedges_path") or "data/continual/disagreement_hedges.txt"
+    ).strip()
+    hedge_stats: dict[str, Any] | None = None
+    if auto_include_disagreement_hedges and disagreement_hedges_path:
+        progress("Building hedge corpus for unresolved swarm disagreements")
+        hedge_stats = build_hedge_corpus_file(
+            out_path=disagreement_hedges_path,
+            oversample=max(1, int(payload.get("disagreement_hedge_oversample", 2))),
+            max_pairs=max(0, int(payload.get("disagreement_hedges_max_pairs", 300))),
+        )
+        if int(hedge_stats.get("written_pairs", 0)) > 0:
+            corpora.append(str(hedge_stats.get("out_path", disagreement_hedges_path)))
+
     normalized_corpora: list[str] = []
     seen_corpora: set[str] = set()
     for path in corpora:
@@ -2283,6 +2299,7 @@ def run_continual_guard_task(payload: dict[str, Any], progress: ProgressCb) -> d
         "new_corpus_used": new_corpus,
         "focus_corpus": focus_stats or {},
         "verified_corrections": verified_stats or {},
+        "disagreement_hedges": hedge_stats or {},
         "merged_new_corpus": merge_stats or {},
         "learned_summary": learned_summary,
     }
@@ -2650,6 +2667,17 @@ def run_codistill_round_task(payload: dict[str, Any], progress: ProgressCb) -> d
     report["out_corpus"] = DEFAULT_OUT_CORPUS_PATH
     report["ran_at_utc"] = datetime.now(timezone.utc).isoformat()
     progress(f"Co-distillation round: taught on {report['probes_taught']}/{report['probes_total']} probe(s)")
+
+    from src.disagreement_curriculum import record_conflicts
+
+    conflict_total = 0
+    for probe_report in report.get("probe_reports", []):
+        conflicts = (probe_report.get("deliberation") or {}).get("possible_conflicts") or []
+        if conflicts:
+            record_conflicts(conflicts, source="codistill_round")
+            conflict_total += len(conflicts)
+    if conflict_total:
+        progress(f"Recorded {conflict_total} peer disagreement(s) into the open-questions queue")
 
     last_report_path = Path("data/codistill/last_report.json")
     last_report_path.parent.mkdir(parents=True, exist_ok=True)

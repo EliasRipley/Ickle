@@ -104,10 +104,17 @@ def _normalize_extraction(parsed: dict) -> dict[str, Any]:
             "total_facts": len(facts),
             "skills_count": len(parsed.get("skills_identified", []) or []),
         },
+        "method": "teacher",
     }
 
 
 def _fallback_extraction(text: str) -> dict[str, Any]:
+    # No teacher means no real topic classification happened -- the first N
+    # words of an arbitrary corpus sample are not a "domain description" of
+    # anything, just whatever text happened to be first (a scraped news
+    # article, a Wikipedia stub, mid-sentence). Callers that display this to
+    # a person (e.g. train.py's --auto-register) must check "method" and use
+    # an honest label instead of presenting this echo as a real summary.
     words = text.split()
     return {
         "entities": [],
@@ -116,6 +123,7 @@ def _fallback_extraction(text: str) -> dict[str, Any]:
         "domain_description": " ".join(words[:30]) if words else text[:200],
         "skills_identified": [],
         "summary": {"total_entities": 0, "total_relationships": 0, "total_facts": 0, "skills_count": 0},
+        "method": "fallback",
     }
 
 

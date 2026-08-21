@@ -1297,6 +1297,7 @@ const trainForm = $("train-form");
 const trainError = $("train-error");
 const trainCustomPath = $("train-custom-path");
 const trainHfDataset = $("train-hf-dataset");
+const trainHfDatasetConfig = $("train-hf-dataset-config");
 const trainNameField = $("train-name-field");
 const trainSizeField = $("train-size-field");
 const tasksList = $("tasks-list");
@@ -1404,10 +1405,19 @@ if (manageButton) {
     radio.addEventListener("change", () => {
       trainCustomPath.hidden = radio.value !== "custom" || !radio.checked;
       trainHfDataset.hidden = radio.value !== "hf_dataset" || !radio.checked;
+      trainHfDatasetConfig.hidden = radio.value !== "hf_dataset" || !radio.checked;
     });
   });
   document.querySelectorAll('input[name="train-target"]').forEach((radio) => {
     radio.addEventListener("change", () => updateTrainTargetVisibility());
+  });
+  document.querySelectorAll('input[name="train-size"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      // Fills in a sensible default for the chosen size; the field stays a
+      // normal editable number input, this just saves typing the common case.
+      const trainSteps = $("train-steps");
+      if (trainSteps && radio.checked) trainSteps.value = TRAIN_SIZE_DEFAULT_STEPS[radio.value] ?? 1200;
+    });
   });
   updateTrainTargetVisibility();
 }
@@ -1425,7 +1435,7 @@ function updateTrainTargetVisibility() {
   if (trainSizeField) trainSizeField.hidden = !isNew;
 }
 
-function trainSourcePayload(source, customPath, hfDataset) {
+function trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig) {
   // Plain-language source choices map to a couple of broad, safe presets --
   // no dataset IDs, hyperparameters, or file-format details shown to the user.
   if (source === "wikipedia") {
@@ -1435,21 +1445,28 @@ function trainSourcePayload(source, customPath, hfDataset) {
     return { stream_dataset: "OpenAssistant/oasst1", stream_field: "text", stream_max_chars: 2000000 };
   }
   if (source === "hf_dataset") {
-    return { stream_dataset: hfDataset, stream_field: "text", stream_max_chars: 2000000 };
+    const payload = { stream_dataset: hfDataset, stream_field: "text", stream_max_chars: 2000000 };
+    if (hfDatasetConfig) payload.stream_config = hfDatasetConfig;
+    return payload;
   }
   return { data_path: customPath };
 }
 
+const TRAIN_SIZE_DEFAULT_STEPS = { quick: 2000, standard: 1200 };
+
 function trainSizePayload(size) {
   // "Standard" leaves model dimensions unset so the server keeps auto-sizing
   // from the resource-budget sliders (the pre-existing behavior). "Quick"
-  // pins a small architecture + step count -- confirmed live to train at
-  // roughly 2 sec/step versus ~73 sec/step for the auto-sized default on a
-  // CPU-only 16-core machine (a ~35x difference), because the resource
-  // sliders only ever controlled thread/memory ceilings, never model size,
-  // which is what actually dominates CPU training speed.
+  // pins a small architecture -- confirmed live to train at roughly 2
+  // sec/step versus ~73 sec/step for the auto-sized default on a CPU-only
+  // 16-core machine (a ~35x difference), because the resource sliders only
+  // ever controlled thread/memory ceilings, never model size, which is what
+  // actually dominates CPU training speed. Step count now always comes from
+  // the explicit #train-steps field (see trainSizeInputs listener below),
+  // not baked in here, so it's visible and editable instead of a silent
+  // server-side default the UI never showed.
   if (size === "quick") {
-    return { block_size: 256, n_embd: 256, n_head: 4, n_layer: 6, steps: 2000 };
+    return { block_size: 256, n_embd: 256, n_head: 4, n_layer: 6 };
   }
   return {};
 }
@@ -1481,6 +1498,7 @@ if (trainForm) {
     const source = document.querySelector('input[name="train-source"]:checked').value;
     const customPath = trainCustomPath.value.trim();
     const hfDataset = trainHfDataset.value.trim();
+    const hfDatasetConfig = trainHfDatasetConfig.value.trim();
     if (source === "custom" && !customPath) {
       trainError.textContent = "Enter the path to a text file first.";
       trainError.hidden = false;
@@ -1491,6 +1509,9 @@ if (trainForm) {
       trainError.hidden = false;
       return;
     }
+
+    const stepsInput = $("train-steps");
+    const steps = Math.max(1, parseInt(stepsInput ? stepsInput.value : "", 10) || 1200);
 
     let taskPayload;
     if (target === "continue") {
@@ -1503,7 +1524,8 @@ if (trainForm) {
       taskPayload = {
         out_model: continuedModelOutPath(currentModel),
         init_model: currentModel,
-        ...trainSourcePayload(source, customPath, hfDataset),
+        steps,
+        ...trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig),
       };
     } else {
       const name = $("train-name").value;
@@ -1515,7 +1537,8 @@ if (trainForm) {
       const size = document.querySelector('input[name="train-size"]:checked').value;
       taskPayload = {
         out_model: `models/candidates/${slugifyModelName(name)}.pt`,
-        ...trainSourcePayload(source, customPath, hfDataset),
+        steps,
+        ...trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig),
         ...trainSizePayload(size),
       };
     }
@@ -1720,16 +1743,28 @@ if (quickTaskForm) {
 }
 
 function renderTrainActive(tasks, liveStatus) {
-  const active = tasks.find((t) => t.task_type === "train_model" && (t.status === "running" || t.status === "queued"));
+  const trainTasks = tasks.filter((t) => t.task_type === "train_model");
+  const active = trainTasks.find((t) => t.status === "running" || t.status === "queued");
   activeTrainTaskId = active ? active.task_id : null;
 
   if (!active) {
     trainActive.hidden = true;
     trainForm.hidden = false;
+    // The most recent run may have just failed -- without this, the panel
+    // silently reverts to a blank form the instant a task fails, with the
+    // only trace of what happened buried in the separate Tasks list.
+    const mostRecent = trainTasks[0];
+    if (mostRecent && mostRecent.status === "failed") {
+      trainError.textContent = mostRecent.error
+        ? `Training failed: ${mostRecent.error}`
+        : "Training failed for an unknown reason.";
+      trainError.hidden = false;
+    }
     return;
   }
   trainActive.hidden = false;
   trainForm.hidden = true;
+  trainError.hidden = true;
 
   const { pct, quality } = formatTrainingProgress(liveStatus || {});
   trainActiveSummary.textContent = active.status === "queued" ? "Training is queued to start..." : "Training is running...";
@@ -1787,6 +1822,14 @@ function renderTasks(tasks) {
     status.textContent = friendlyTaskStatus(String(t.status || ""));
     main.appendChild(title);
     main.appendChild(status);
+
+    if (t.status === "failed" && t.error) {
+      const errorEl = document.createElement("span");
+      errorEl.className = "task-row-error";
+      errorEl.textContent = String(t.error);
+      main.appendChild(errorEl);
+    }
+
     row.appendChild(main);
 
     if (t.status === "running" || t.status === "queued") {
@@ -1855,6 +1898,14 @@ async function refreshModelsTab() {
       useBtn.onclick = async () => {
         try {
           await api("/api/flags", { method: "POST", body: JSON.stringify({ current_model: m.path }) });
+          // Persisting the flag alone isn't enough: the topbar model picker
+          // (#model-select) is what sendMessage() and everything else in the
+          // app actually reads to decide which model answers, and setting a
+          // value programmatically doesn't fire its own "change" handler --
+          // without this, the flag changes server-side but the app keeps
+          // chatting with the old model until the user separately touches
+          // the topbar dropdown, which is why this looked like it did nothing.
+          modelSelect.value = m.path;
           await refreshModels();
           refreshModelsTab();
         } catch {}
@@ -2259,6 +2310,7 @@ async function refreshNetworkTab() {
   await refreshCodistillPanel();
   await refreshCommonsPanel();
   await refreshConsolidationPanel();
+  await refreshDisagreementsPanel();
 }
 
 // --- Peer teaching / co-distillation ---------------------------------------
@@ -2497,10 +2549,12 @@ if (consolidationRunBtn) {
     const status = $("consolidation-status");
     consolidationRunBtn.disabled = true;
     if (status) status.textContent = "Queuing a guarded training step -- watch it under Background tasks.";
+    const stepsInput = $("consolidation-steps");
+    const steps = Math.max(1, parseInt(stepsInput ? stepsInput.value : "", 10) || 1200);
     try {
       await controlApi("/api/tasks", {
         method: "POST",
-        body: JSON.stringify({ task_type: "continual_guard_step", payload: {} }),
+        body: JSON.stringify({ task_type: "continual_guard_step", payload: { steps } }),
       });
       if (status) status.textContent = "Queued. Corrections are included automatically.";
     } catch (err) {
@@ -2509,6 +2563,75 @@ if (consolidationRunBtn) {
       consolidationRunBtn.disabled = false;
     }
   });
+}
+
+async function refreshDisagreementsPanel() {
+  const list = $("disagreements-list");
+  const empty = $("disagreements-empty");
+  if (!list || !empty) return;
+  try {
+    const data = await controlApi("/api/disagreements/status");
+    const top = data.top || [];
+    list.innerHTML = "";
+    empty.hidden = top.length > 0;
+    top.forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = "task-row commons-event-row";
+      const main = document.createElement("div");
+      main.className = "task-row-main";
+      const title = document.createElement("span");
+      title.className = "task-row-title";
+      title.textContent = entry.representative || "Disputed claim";
+      const detail = document.createElement("span");
+      detail.className = "task-row-status";
+      detail.textContent = `${entry.peer_count || 0} independent peer(s) disagree -- observed ${entry.times_observed || 1} time(s).`;
+      main.appendChild(title);
+      main.appendChild(detail);
+
+      const form = document.createElement("div");
+      form.className = "epistemic-form-buttons";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "Resolve it: what's actually correct?";
+      input.className = "model-picker";
+      input.setAttribute("aria-label", `Correction for: ${entry.representative || "claim"}`);
+      const resolveBtn = document.createElement("button");
+      resolveBtn.type = "button";
+      resolveBtn.textContent = "Resolve this";
+      resolveBtn.addEventListener("click", async () => {
+        const correctionText = input.value.trim();
+        if (!correctionText) {
+          input.focus();
+          return;
+        }
+        resolveBtn.disabled = true;
+        try {
+          await api("/api/epistemics/reviews", {
+            method: "POST",
+            body: JSON.stringify({
+              claim_text: entry.representative,
+              relation: "correct",
+              correction_text: correctionText,
+              shared: false,
+            }),
+          });
+          await refreshDisagreementsPanel();
+        } catch (err) {
+          resolveBtn.textContent = err.message || "Failed";
+          resolveBtn.disabled = false;
+        }
+      });
+      form.appendChild(input);
+      form.appendChild(resolveBtn);
+
+      row.appendChild(main);
+      row.appendChild(form);
+      list.appendChild(row);
+    });
+  } catch {
+    empty.hidden = false;
+    empty.textContent = "Couldn't load swarm disagreements.";
+  }
 }
 
 // --- Add-ons (knowledge deltas) --------------------------------------------
@@ -2605,6 +2728,27 @@ async function refreshAddonsTab() {
         }
       });
       controls.appendChild(rollbackBtn);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "addon-rollback-btn addon-remove-btn";
+      removeBtn.textContent = "Remove";
+      removeBtn.title = "Permanently delete this add-on and its saved versions";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`Remove "${d.domain_description || d.delta_id}"? This deletes it and its saved versions permanently.`)) return;
+        removeBtn.disabled = true;
+        try {
+          await controlApi("/api/deltas/remove", {
+            method: "POST",
+            body: JSON.stringify({ delta_id: d.delta_id }),
+          });
+          refreshAddonsTab();
+        } catch (err) {
+          removeBtn.textContent = err.message || "Failed";
+          removeBtn.disabled = false;
+        }
+      });
+      controls.appendChild(removeBtn);
 
       row.appendChild(controls);
 

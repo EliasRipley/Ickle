@@ -105,6 +105,15 @@ class ScopedKnowledgeManager:
                 self.router.register(delta)
         return result
 
+    def remove_delta(self, delta_id: str) -> bool:
+        """Permanently deletes an add-on: its registry entry and its whole
+        version-history directory (DeltaRegistry.remove() already did the
+        file removal safely -- it just had no caller). Unlike disable(),
+        this can't be undone with a re-enable; a rolled-back-to version is
+        gone too, since rollback reads from that same directory."""
+        self.router.remove(delta_id)
+        return self.registry.remove(delta_id)
+
 
 _scoped_manager: ScopedKnowledgeManager | None = None
 

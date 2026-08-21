@@ -19,3 +19,5 @@ python -m src.app continual-guard run-step \
 Keep the default user benchmark present, set explicit limits for acceptable core-score loss and required new-topic gain, and review the JSON report. Promotion must be a separate decision from training completion.
 
 Every guarded step also auto-builds and mixes in a smart conversation corpus, a benchmark-focused corpus, and — by default (`auto_include_verified_corrections`) — an oversampled corpus of the owner's own adopted Epistemic Commons corrections, so a human correction can become part of the model, not just a prompt-time patch. See [Epistemic Commons: from correction to model](EPISTEMIC_COMMONS.md#from-correction-to-model).
+
+It also mixes in — by default (`auto_include_disagreement_hedges`) — a smaller corpus teaching the model to hedge on claims where independently trained swarm peers currently disagree, instead of confidently picking a side. See [Epistemic Commons: what the swarm disagrees about](EPISTEMIC_COMMONS.md#what-the-swarm-disagrees-about).

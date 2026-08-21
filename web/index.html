@@ -211,6 +211,7 @@
         </div>
         <input id="train-custom-path" type="text" placeholder="Path to a .txt file" aria-label="Path to a text file on this computer" hidden />
         <input id="train-hf-dataset" type="text" placeholder="Dataset name, e.g. wikitext" aria-label="Hugging Face dataset name" hidden />
+        <input id="train-hf-dataset-config" type="text" placeholder="Config/subset (only some datasets need this), e.g. wikitext-2-raw-v1" aria-label="Hugging Face dataset config" hidden />
 
         <div id="train-size-field">
           <label>How big should it be?</label>
@@ -224,6 +225,12 @@
               <span>Standard — a bigger, more capable model, but can take many hours (or much longer) without a GPU</span>
             </label>
           </div>
+        </div>
+
+        <div id="train-steps-field">
+          <label for="train-steps">Training length (steps)</label>
+          <input id="train-steps" type="number" min="50" step="50" value="1200" />
+          <p class="hint-text">More steps can teach it more, but takes longer and risks overfitting; fewer is faster but learns less. Picking a size above fills in a sensible default -- you can still type your own number.</p>
         </div>
 
         <button id="train-start-btn" type="submit">Start training</button>
@@ -440,9 +447,17 @@
           <p class="hint-text"><strong>From correction to model:</strong> a correction above normally only nudges one future answer. Every guarded training step (Training tab, or the button below) also folds your own adopted corrections into the actual model as extra-weighted training examples, gated by the same anti-forgetting checks as any other training run -- so a correction can outlive the conversation it came from, under your control, not just a company's.</p>
           <p id="consolidation-summary" class="hint-text">Loading...</p>
           <div class="commons-actions">
+            <label for="consolidation-steps" class="hint-text">Steps</label>
+            <input id="consolidation-steps" type="number" min="50" step="50" value="1200" class="addon-threshold-input" />
             <button id="consolidation-run-btn" type="button">Consolidate corrections now</button>
             <span id="consolidation-status" class="hint-text"></span>
           </div>
+        </div>
+
+        <div class="consolidation-subsection">
+          <p class="hint-text"><strong>What the swarm disagrees about:</strong> when independently-trained peers give conflicting answers, that disagreement is itself information no single model has -- so instead of discarding it, Ickle tracks it and trains itself to hedge on exactly these claims ("peers disagree, treat as unsettled") rather than confidently pick a side. Resolve one below to move it from hedging into your own confident, adopted correction.</p>
+          <div id="disagreements-list" class="tasks-list"></div>
+          <p id="disagreements-empty" class="hint-text" hidden>No open peer disagreements right now.</p>
         </div>
       </div>
     </div>

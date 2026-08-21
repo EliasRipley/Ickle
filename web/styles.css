@@ -1523,6 +1523,12 @@ html, body {
   padding: 0.05rem 0.5rem;
 }
 
+.task-row-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+  word-break: break-word;
+}
+
 .task-status-running {
   color: var(--accent);
 }
@@ -1799,6 +1805,11 @@ html, body {
 .addon-rollback-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.addon-remove-btn:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* Stable chat header ----------------------------------------------------- */

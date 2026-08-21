@@ -174,6 +174,41 @@ decision remains the only thing that puts a claim in scope for this at all —
 peer conformity still never does. `GET /api/consolidation/status` reports how
 many corrections are currently eligible.
 
+## What the swarm disagrees about
+
+"Swarm deliberation and trust" above already detects when independently
+trained peers give conflicting answers to the same live question. That is a
+genuinely stronger uncertainty signal than a model doubting itself: a single
+model's self-reported confidence is unreliable because its blind spots are
+correlated with itself (see the citations at the top of this document);
+peers trained independently, on different private data, are not correlated
+with each other in the same way. Until now, that signal was thrown away the
+moment the chat response (or a co-distillation round's report file) was
+overwritten.
+
+`src/disagreement_curriculum.py` keeps it. Both the live "ask the swarm too"
+path and periodic co-distillation rounds feed the same durable,
+deduplicated queue, ranked by how many independent peers actually diverge —
+the network's own ranked list of what it is least sure about, visible under
+Control room → Network → Epistemic Commons → "What the swarm disagrees
+about", with a direct "Resolve this" action.
+
+While an entry sits unresolved, it also becomes a training example — not a
+confident correction, but a hedge: "independent peers disagree on this,
+treat it as unsettled." This teaches the model to be calibrated exactly
+where calibration is warranted, instead of applying a blanket instruction to
+hedge everywhere (which would just produce a generically evasive model —
+the same failure `continual_guard`'s evasiveness checks already watch for
+in ordinary training data). The moment the owner corrects or adopts that
+exact claim text in the Commons, it disappears from this queue and becomes
+a confident, oversampled correction via [`verified_corrections.py`](#from-correction-to-model)
+instead. A claim is never trained to be both hedged and asserted.
+
+Matching by exact claim text has the same honest limitation the rest of the
+Commons has: a differently-worded correction of the same underlying fact
+won't be recognized as resolving it (id matching, not semantic matching —
+same caveat as `reviews_for_claim()`).
+
 ## Code map
 
 - `src/epistemics.py`: deterministic candidate-claim extraction, evidence
@@ -183,6 +218,9 @@ many corrections are currently eligible.
 - `src/verified_corrections.py`: turns adopted corrections into an
   oversampled training corpus for `continual_guard_step` (see "From
   correction to model" above).
+- `src/disagreement_curriculum.py`: durable peer-disagreement queue and
+  hedge-training corpus for `continual_guard_step` (see "What the swarm
+  disagrees about" above).
 - `src/federated/swarm.py`: peer HTTP transport.
 - `src/serve_web.py`: answer-map generation and local-review endpoint.
 - `src/serve_control.py`: commons status/sync/adoption, consolidation status,
@@ -206,6 +244,12 @@ many corrections are currently eligible.
 - Consolidation oversamples by a fixed multiplier rather than weighting by
   how many independent peers converged on a correction, or by recency; a
   smarter weighting scheme is future work.
+- The disagreement queue matches resolution by exact claim id, not semantic
+  similarity, and its polarity-conflict detection (`_claim_polarity()` in
+  `src/epistemics.py`) is a simple negation-word heuristic, not real
+  contradiction detection -- it will miss conflicts that don't hinge on an
+  explicit negation, and can occasionally flag two claims as conflicting
+  when they merely use different words for a similar idea.
 - A stronger optional uncertainty mode could sample multiple independent
   generations and cluster meanings, but must expose its compute cost and avoid
   delaying every answer by default.

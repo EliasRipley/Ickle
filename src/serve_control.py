@@ -1303,13 +1303,19 @@ class ControlRuntime:
             peer_discovery.add_bootstrap(host, port)
         _join_via_bootstrap(peer_discovery, bootstrap)
 
-        return _ask_swarm(
+        result = _ask_swarm(
             prompt,
             self_peer_id=identity.peer_id,
             peer_discovery=peer_discovery,
             ledger=ledger,
             trust_store=trust_store,
         )
+        conflicts = (result.get("deliberation") or {}).get("possible_conflicts") or []
+        if conflicts:
+            from src.disagreement_curriculum import record_conflicts
+
+            record_conflicts(conflicts, source="live_ask")
+        return result
 
     def rate_swarm_response(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Let the owner, rather than peer conformity, govern local trust."""
@@ -1372,6 +1378,17 @@ class ControlRuntime:
         status["corpus_path"] = DEFAULT_CORRECTIONS_CORPUS
         return status
 
+    def get_disagreement_status(self) -> dict[str, Any]:
+        """The network's own ranked list of what it's currently least sure
+        about: claim clusters where independently-trained peers gave
+        conflicting answers, accumulated by both the live 'ask the swarm
+        too' path and periodic co-distillation rounds (see
+        src/disagreement_curriculum.py). An entry drops off the moment the
+        owner corrects/adopts that exact claim in the Epistemic Commons."""
+        from src.disagreement_curriculum import disagreement_status
+
+        return disagreement_status()
+
     def get_contribution_status(self) -> dict[str, Any]:
         """Seed:peer contribution ledger summary (torrent-ratio style: how much
         this device has given the network -- training rounds completed,
@@ -1401,6 +1418,18 @@ class ControlRuntime:
         mgr = get_scoped_manager()
         ok = mgr.enable_delta(delta_id) if enabled else mgr.disable_delta(delta_id)
         return {"ok": ok, "delta_id": delta_id, "enabled": enabled}
+
+    def remove_knowledge_delta(self, delta_id: str) -> dict[str, Any]:
+        """ScopedKnowledgeManager.remove_delta() already existed at the
+        registry layer (DeltaRegistry.remove()) -- disable/rollback had
+        routes wired but delete never did, so a bad or junk-labeled add-on
+        (see e.g. train.py's --auto-register fallback labeling) had no way
+        to actually go away, only be turned off forever."""
+        from src.scoped_knowledge import get_scoped_manager
+
+        mgr = get_scoped_manager()
+        ok = mgr.remove_delta(delta_id)
+        return {"ok": ok, "delta_id": delta_id}
 
     def rollback_knowledge_delta(self, delta_id: str) -> dict[str, Any]:
         from src.scoped_knowledge import get_scoped_manager
@@ -2353,6 +2382,9 @@ class ControlHandler(IckleHTTPHandler):
         if parsed.path == "/api/consolidation/status":
             self._send_json(200, self.runtime.get_consolidation_status())
             return
+        if parsed.path == "/api/disagreements/status":
+            self._send_json(200, self.runtime.get_disagreement_status())
+            return
         if parsed.path == "/api/contribution/status":
             self._send_json(200, self.runtime.get_contribution_status())
             return
@@ -2484,6 +2516,9 @@ class ControlHandler(IckleHTTPHandler):
                 return
             if parsed.path == "/api/deltas/rollback":
                 self._send_json(200, self.runtime.rollback_knowledge_delta(str(payload.get("delta_id", "")).strip()))
+                return
+            if parsed.path == "/api/deltas/remove":
+                self._send_json(200, self.runtime.remove_knowledge_delta(str(payload.get("delta_id", "")).strip()))
                 return
             if parsed.path == "/api/deltas/threshold":
                 try:
@@ -2628,6 +2663,7 @@ def main():
         "/api/memory/export, /api/memory/export/save, /api/memory/search, /api/memory/clear, "
         "/api/swarm/join, /api/swarm/leave, /api/swarm/peers/add, /api/swarm/peers/remove, /api/swarm/ask, /api/swarm/feedback, "
         "/api/commons/status, /api/commons/sync, /api/commons/adopt, /api/consolidation/status, "
+        "/api/disagreements/status, "
         "/api/research/sessions, /api/research/find, "
         "/api/programs/research-train, /api/open-dataset-ingest, /api/maintenance/model, "
         "/api/maintenance/training, /api/maintenance/data, /api/workspace-check, "
