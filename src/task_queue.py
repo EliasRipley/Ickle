@@ -59,6 +59,16 @@ def _is_fatal_error(exc: Exception) -> bool:
         "sigabrt",
         "sigill",
         "sigfpe",
+        # Deterministic configuration mistakes (wrong/missing dataset field,
+        # bad dataset id, missing config/subset) will fail identically on
+        # every retry -- e.g. streaming Anthropic/hh-rlhf with the default
+        # --stream-field "text" always yields 0 chars, since that dataset's
+        # real fields are "chosen"/"rejected". Retrying these just burns two
+        # attempts' worth of time before ever showing the user the message
+        # that already correctly explains the fix.
+        "produced too little text",
+        "isn't a valid hugging face dataset id",
+        "requires a config/subset name",
     ]
     for p in patterns:
         if p in msg:

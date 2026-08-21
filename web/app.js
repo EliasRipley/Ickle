@@ -1298,6 +1298,7 @@ const trainError = $("train-error");
 const trainCustomPath = $("train-custom-path");
 const trainHfDataset = $("train-hf-dataset");
 const trainHfDatasetConfig = $("train-hf-dataset-config");
+const trainHfDatasetField = $("train-hf-dataset-field");
 const trainNameField = $("train-name-field");
 const trainSizeField = $("train-size-field");
 const tasksList = $("tasks-list");
@@ -1406,8 +1407,26 @@ if (manageButton) {
       trainCustomPath.hidden = radio.value !== "custom" || !radio.checked;
       trainHfDataset.hidden = radio.value !== "hf_dataset" || !radio.checked;
       trainHfDatasetConfig.hidden = radio.value !== "hf_dataset" || !radio.checked;
+      trainHfDatasetField.hidden = radio.value !== "hf_dataset" || !radio.checked;
     });
   });
+  // A handful of well-known Hugging Face datasets don't use a "text" column
+  // (the field Ickle assumes by default) -- without this hint, streaming
+  // one of them silently reads nothing from every row and fails with
+  // "produced too little text", which isn't obvious unless you already know
+  // the dataset's schema. This only pre-fills a suggestion; it's still a
+  // normal editable field for any dataset not in the list.
+  const KNOWN_DATASET_TEXT_FIELDS = {
+    "anthropic/hh-rlhf": "chosen",
+    "openai/webgpt_comparisons": "answer_0",
+    "databricks/databricks-dolly-15k": "response",
+  };
+  if (trainHfDataset) {
+    trainHfDataset.addEventListener("blur", () => {
+      const known = KNOWN_DATASET_TEXT_FIELDS[trainHfDataset.value.trim().toLowerCase()];
+      if (known && !trainHfDatasetField.value.trim()) trainHfDatasetField.value = known;
+    });
+  }
   document.querySelectorAll('input[name="train-target"]').forEach((radio) => {
     radio.addEventListener("change", () => updateTrainTargetVisibility());
   });
@@ -1435,7 +1454,7 @@ function updateTrainTargetVisibility() {
   if (trainSizeField) trainSizeField.hidden = !isNew;
 }
 
-function trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig) {
+function trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig, hfDatasetField) {
   // Plain-language source choices map to a couple of broad, safe presets --
   // no dataset IDs, hyperparameters, or file-format details shown to the user.
   if (source === "wikipedia") {
@@ -1445,7 +1464,11 @@ function trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig) {
     return { stream_dataset: "OpenAssistant/oasst1", stream_field: "text", stream_max_chars: 2000000 };
   }
   if (source === "hf_dataset") {
-    const payload = { stream_dataset: hfDataset, stream_field: "text", stream_max_chars: 2000000 };
+    const payload = {
+      stream_dataset: hfDataset,
+      stream_field: (hfDatasetField || "").trim() || "text",
+      stream_max_chars: 2000000,
+    };
     if (hfDatasetConfig) payload.stream_config = hfDatasetConfig;
     return payload;
   }
@@ -1499,6 +1522,7 @@ if (trainForm) {
     const customPath = trainCustomPath.value.trim();
     const hfDataset = trainHfDataset.value.trim();
     const hfDatasetConfig = trainHfDatasetConfig.value.trim();
+    const hfDatasetField = trainHfDatasetField.value.trim();
     if (source === "custom" && !customPath) {
       trainError.textContent = "Enter the path to a text file first.";
       trainError.hidden = false;
@@ -1525,7 +1549,7 @@ if (trainForm) {
         out_model: continuedModelOutPath(currentModel),
         init_model: currentModel,
         steps,
-        ...trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig),
+        ...trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig, hfDatasetField),
       };
     } else {
       const name = $("train-name").value;
@@ -1538,7 +1562,7 @@ if (trainForm) {
       taskPayload = {
         out_model: `models/candidates/${slugifyModelName(name)}.pt`,
         steps,
-        ...trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig),
+        ...trainSourcePayload(source, customPath, hfDataset, hfDatasetConfig, hfDatasetField),
         ...trainSizePayload(size),
       };
     }
@@ -1759,12 +1783,26 @@ function renderTrainActive(tasks, liveStatus) {
         ? `Training failed: ${mostRecent.error}`
         : "Training failed for an unknown reason.";
       trainError.hidden = false;
+    } else if (mostRecent && mostRecent.status === "cancelled") {
+      trainError.textContent = "Training was cancelled.";
+      trainError.hidden = false;
     }
     return;
   }
   trainActive.hidden = false;
   trainForm.hidden = true;
-  trainError.hidden = true;
+
+  // A "queued" task can be a fresh submission, or a failed attempt sitting
+  // in its retry backoff with the *same* config that just failed -- e.g. a
+  // wrong dataset field name fails identically on every attempt, so without
+  // this the error only ever appeared after all retries were exhausted
+  // (or never, if the user gave up and cancelled it first).
+  if (active.status === "queued" && active.error) {
+    trainError.textContent = `Training run hit a problem and will retry: ${active.error}`;
+    trainError.hidden = false;
+  } else {
+    trainError.hidden = true;
+  }
 
   const { pct, quality } = formatTrainingProgress(liveStatus || {});
   trainActiveSummary.textContent = active.status === "queued" ? "Training is queued to start..." : "Training is running...";

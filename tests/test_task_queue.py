@@ -4,8 +4,26 @@ import unittest
 import uuid
 from pathlib import Path
 
-from src.task_queue import TaskQueue
+from src.task_queue import TaskQueue, _is_fatal_error
 from src.training_control import get_training_stop_request_path
+
+
+class FatalErrorClassificationTests(unittest.TestCase):
+    def test_wrong_stream_field_is_fatal(self):
+        exc = ValueError("Streamed dataset Anthropic/hh-rlhf produced too little text (0 chars). Check --stream-filter and --stream-field.")
+        self.assertTrue(_is_fatal_error(exc))
+
+    def test_bad_dataset_id_is_fatal(self):
+        exc = ValueError("'wikitext' isn't a valid Hugging Face dataset id -- it needs an organization/user prefix.")
+        self.assertTrue(_is_fatal_error(exc))
+
+    def test_missing_config_is_fatal(self):
+        exc = ValueError("Dataset 'Salesforce/wikitext' requires a config/subset name (e.g. --stream-config wikitext-2-raw-v1).")
+        self.assertTrue(_is_fatal_error(exc))
+
+    def test_transient_network_error_is_not_fatal(self):
+        exc = ConnectionError("Connection reset by peer while downloading shard")
+        self.assertFalse(_is_fatal_error(exc))
 
 
 class TaskQueueTests(unittest.TestCase):
