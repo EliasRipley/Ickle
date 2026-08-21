@@ -1857,6 +1857,12 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
             cmd.extend(["--stream-template", stream_template])
         stream_max = int(payload.get("stream_max_chars") or _default_stream_max_chars(steps, batch_size, block_size))
         cmd.extend(["--stream-max-chars", str(stream_max)])
+        if "stream_shuffle_buffer" in payload:
+            cmd.extend(["--stream-shuffle-buffer", str(int(payload.get("stream_shuffle_buffer", 0)))])
+        if "stream_shuffle_seed" in payload:
+            cmd.extend(["--stream-shuffle-seed", str(int(payload.get("stream_shuffle_seed", -1)))])
+        if "stream_role_map" in payload:
+            cmd.extend(["--stream-role-map", str(payload.get("stream_role_map", ""))])
         cmd.extend(["--tokenizer", tokenizer_kind])
         if tokenizer_kind == "sentencepiece" and spm_vocab_size > 0:
             cmd.extend(["--spm-vocab-size", str(spm_vocab_size)])

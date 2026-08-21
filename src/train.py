@@ -118,6 +118,29 @@ def _render_stream_template(template: str, row: dict[str, Any]) -> str:
     return rendered.strip()
 
 
+def _parse_stream_role_map(role_map_expr: str) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for raw_pair in str(role_map_expr or "").split(","):
+        raw_pair = raw_pair.strip()
+        if not raw_pair or "=" not in raw_pair:
+            continue
+        old, new = raw_pair.split("=", 1)
+        old, new = old.strip(), new.strip()
+        if old and new:
+            pairs.append((old, new))
+    return pairs
+
+
+def apply_stream_role_map(text: str, role_map: list[tuple[str, str]]) -> str:
+    """Remaps dialogue role markers (e.g. 'Human:'/'Assistant:' -> 'User:'/'Ickle:')
+    so streamed chat/preference text actually matches Ickle's own template and
+    build_loss_mask()'s response boundary instead of silently training in
+    unmasked raw-text mode. See --stream-role-map's help text for why."""
+    for old, new in role_map:
+        text = text.replace(f"{old}:", f"{new}:")
+    return text
+
+
 def build_loss_mask(tokens: list[int], tokenizer, text: str, response_prefix: str = "Ickle:") -> list[bool]:
     """Build a boolean mask: True for response tokens (train on these), False for prompt tokens.
     If no response_prefix or 'User:' markers found, all tokens are masked True (raw text mode).
@@ -446,6 +469,30 @@ def main():
     parser.add_argument("--stream-filter", default="", help="Python filter expr, e.g. row.get('language')=='English'")
     parser.add_argument("--stream-config", default="", help="Dataset config/subset")
     parser.add_argument("--stream-max-chars", type=int, default=2000000, help="Max chars to accumulate when streaming")
+    parser.add_argument(
+        "--stream-shuffle-buffer",
+        type=int,
+        default=10000,
+        help="Approximate shuffle buffer size for streamed datasets (0 disables shuffling and reads raw storage order)",
+    )
+    parser.add_argument(
+        "--stream-shuffle-seed",
+        type=int,
+        default=-1,
+        help="Shuffle seed for streamed datasets (-1 = a fresh random seed each run, so repeated/continued runs "
+        "sample a different slice of the dataset instead of always the same leading rows)",
+    )
+    parser.add_argument(
+        "--stream-role-map",
+        default="Human=User,Assistant=Ickle",
+        help="Comma-separated OldRole=NewRole pairs remapped in streamed dialogue text before accumulation. "
+        "Many chat/preference HF datasets format multi-turn text as 'Human: ...\\n\\nAssistant: ...' "
+        "(e.g. Anthropic/hh-rlhf's chosen/rejected fields); Ickle's own template and build_loss_mask() "
+        "only recognize 'User:'/'Ickle:', so without this a dataset in that format never actually matches "
+        "Ickle's response-masking boundary (silently falling back to unmasked raw-text training) and the "
+        "model can pick up literal 'Human:'-shaped fragments as if they were ordinary content. Empty string "
+        "disables remapping (safe no-op for plain text sources like fineweb, which have no such markers).",
+    )
     parser.add_argument("--out", default=str(Path("models") / "ickle.pt"))
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--batch-size", type=int, default=0)
@@ -561,10 +608,27 @@ def main():
                     f"(e.g. --stream-config wikitext-2-raw-v1). Original error: {exc}"
                 ) from exc
             raise
+
+        # Without this, `for row in stream` reads a streamed dataset's raw
+        # storage order -- typically grouped by source/topic/time, not
+        # random -- so a bounded slice (however large) is a biased sample of
+        # whatever happens to be first, not a representative one, and every
+        # run/continuation reads the *same* leading rows since nothing else
+        # varies the starting point. HF's buffer-based `.shuffle()` works on
+        # an IterableDataset without downloading the whole thing first.
+        shuffle_buffer = max(0, int(args.stream_shuffle_buffer))
+        if shuffle_buffer > 0:
+            shuffle_seed = int(args.stream_shuffle_seed)
+            if shuffle_seed < 0:
+                shuffle_seed = random.randint(0, 2**31 - 1)
+            stream = stream.shuffle(seed=shuffle_seed, buffer_size=shuffle_buffer)
+            print(f"shuffling stream (buffer={shuffle_buffer}, seed={shuffle_seed})")
+
         text_field = args.stream_field.strip() or "text"
         stream_template = (args.stream_template or "").strip()
         max_chars = int(args.stream_max_chars)
         row_filter_expr = (args.stream_filter or "").strip()
+        role_map = _parse_stream_role_map(args.stream_role_map)
         text = ""
         consumed = 0
         for row in stream:
@@ -582,6 +646,8 @@ def main():
                 value = row.get(text_field, "")
             if not isinstance(value, str) or len(value) < 80:
                 continue
+            if role_map:
+                value = apply_stream_role_map(value, role_map)
             text += value + "\n\n"
             consumed += 1
             if len(text) >= max_chars:
@@ -595,6 +661,8 @@ def main():
             template2 = (args.stream_template_2 or "").strip()
             max_chars_2 = int(args.stream_max_chars_2) if args.stream_max_chars_2 > 0 else max_chars
             stream2 = load_dataset(ds2, split="train", streaming=True)
+            if shuffle_buffer > 0:
+                stream2 = stream2.shuffle(seed=shuffle_seed, buffer_size=shuffle_buffer)
             consumed2 = 0
             text2 = ""
             for row in stream2:
@@ -606,6 +674,8 @@ def main():
                     value = row.get(field2, "")
                 if not isinstance(value, str) or len(value) < 3:
                     continue
+                if role_map:
+                    value = apply_stream_role_map(value, role_map)
                 text2 += value + "\n\n"
                 consumed2 += 1
                 if len(text2) >= max_chars_2:
