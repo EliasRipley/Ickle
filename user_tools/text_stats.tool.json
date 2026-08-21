@@ -1,0 +1,9 @@
+{
+    "description": "Counts characters, words, lines, and unique words in provided text.",
+    "permissions": {
+        "filesystem_read": true,
+        "filesystem_write": false,
+        "network": false,
+        "process": false
+    }
+}

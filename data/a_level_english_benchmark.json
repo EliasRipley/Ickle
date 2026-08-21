@@ -1,0 +1,102 @@
+[
+  {
+    "name": "Othello sympathy",
+    "prompt": "'Audiences are more likely to sympathise with Othello as a victim than to condemn him for his jealous suspicions towards his wife.' Discuss how Shakespeare presents Othello in the play.",
+    "keywords": ["victim", "sympathise", "Iago", "manipulation", "jealousy", "outsider", "tragic", "noble", "desdemona", "race"]
+  },
+  {
+    "name": "Barriers to love comparison",
+    "prompt": "Compare how the authors of two texts you have studied present barriers to love.",
+    "keywords": ["communication", "barrier", "love", "relationship", "silence", "misunderstanding", "society", "isolation"]
+  },
+  {
+    "name": "Jealousy in Othello",
+    "prompt": "Explore how Shakespeare presents the theme of jealousy in Othello. Consider the ways jealousy is shown and its consequences.",
+    "keywords": ["jealousy", "green-eyed", "Iago", "poison", "destruction", "Othello", "Desdemona", "tragedy", "manipulation"]
+  },
+  {
+    "name": "Hamlet madness",
+    "prompt": "Explore how far Shakespeare presents Hamlet's madness as real or feigned in Hamlet.",
+    "keywords": ["madness", "feigned", "antic", "disposition", "grief", "performance", "melancholy", "revenge", "soliloquy"]
+  },
+  {
+    "name": "Great Gatsby American Dream",
+    "prompt": "'The Great Gatsby is a critique of the American Dream, not a celebration of it.' To what extent do you agree?",
+    "keywords": ["American Dream", "critique", "corruption", "wealth", "class", "green light", "Gatsby", "careless", "bootlegger"]
+  },
+  {
+    "name": "Wuthering Heights setting",
+    "prompt": "Discuss the significance of setting in Wuthering Heights, exploring how Brontë uses place to reflect character and theme.",
+    "keywords": ["setting", "Wuthering Heights", "Thrushcross Grange", "moors", "nature", "passion", "civilisation", "contrast"]
+  },
+  {
+    "name": "A Doll's House integrity",
+    "prompt": "'In A Doll's House, Ibsen presents a world in which personal integrity is impossible to maintain within the institution of marriage.' To what extent do you agree?",
+    "keywords": ["Nora", "Torvald", "integrity", "marriage", "secret", "doll", "independence", "identity", "door slam"]
+  },
+  {
+    "name": "Macbeth supernatural",
+    "prompt": "Analyse how Shakespeare presents the supernatural in Macbeth and its effect on the protagonist.",
+    "keywords": ["supernatural", "witches", "Macbeth", "ambition", "hallucination", "dagger", "prophecy", "equivocation", "tyranny"]
+  },
+  {
+    "name": "London inequality",
+    "prompt": "Analyse how Blake presents inequality in 'London'.",
+    "keywords": ["Blake", "London", "inequality", "chartered", "mind-forged", "manacles", "church", "palace", "harlot", "oppression"]
+  },
+  {
+    "name": "Owen Dulce war reality",
+    "prompt": "Analyse how Owen presents the reality of war in 'Dulce et Decorum Est'.",
+    "keywords": ["Owen", "war", "trenches", "gas", "dying", "old Lie", "bitter", "disillusionment", "sacrifice", "horror"]
+  },
+  {
+    "name": "Frankenstein humanity",
+    "prompt": "Explore how Shelley presents the monster's humanity in 'Frankenstein'.",
+    "keywords": ["monster", "humanity", "sympathy", "isolation", "creator", "language", "narrative", "compassion", "rejection"]
+  },
+  {
+    "name": "Handmaid's Tale power",
+    "prompt": "Explore how Atwood presents power structures in 'The Handmaid's Tale'.",
+    "keywords": ["power", "Gilead", "control", "women", "body", "resistance", "Offred", "Aunts", "totalitarian", "voice"]
+  },
+  {
+    "name": "Streetcar conflict worlds",
+    "prompt": "Explore how Williams presents the conflict between old and new worlds in 'A Streetcar Named Desire'.",
+    "keywords": ["Blanche", "Stanley", "old south", "new world", "illusion", "reality", "desire", "destruction", "class", "factory"]
+  },
+  {
+    "name": "Jane Eyre self-worth",
+    "prompt": "Explore how Brontë presents Jane's sense of self-worth in 'Jane Eyre'.",
+    "keywords": ["self-worth", "Jane", "autonomy", "independence", "integrity", "equality", "passion", "principle", "marriage"]
+  },
+  {
+    "name": "Hard Times social injustice",
+    "prompt": "Explore how Dickens presents social injustice in the opening of 'Hard Times'.",
+    "keywords": ["injustice", "education", "facts", "Graderind", "Utilitarian", "factory", "imagination", "children", "Sissy Jupe"]
+  },
+  {
+    "name": "Piano memory Lawrence",
+    "prompt": "Explore how the poet presents memory in 'Piano' by D. H. Lawrence.",
+    "keywords": ["memory", "nostalgia", "childhood", "weeping", "past", "sensory", "music", "regression", "emotion"]
+  },
+  {
+    "name": "Language change decay",
+    "prompt": "'Language change is a process of decay.' Evaluate this view with reference to your study of language change.",
+    "keywords": ["language change", "decay", "prescriptivism", "descriptivism", "evolution", "standardisation", "neologism", "internet"]
+  },
+  {
+    "name": "Gender representation language",
+    "prompt": "Analyse how a text uses language to represent gender. Consider lexical choices, grammatical structures, and discourse strategies.",
+    "keywords": ["gender", "representation", "lexical", "grammatical", "agency", "passive", "stereotype", "discourse", "ideology"]
+  },
+  {
+    "name": "Children's language development",
+    "prompt": "Evaluate the view that children's language development is primarily shaped by interaction with caregivers.",
+    "keywords": ["interaction", "caregiver", "scaffolding", "CDS", "Bruner", "LASS", "Chomsky", "innate", "nativist", "social"]
+  },
+  {
+    "name": "Technology language decline",
+    "prompt": "Evaluate the view that the English language is in a state of decline due to the influence of technology and social media.",
+    "keywords": ["technology", "social media", "language change", "decline", "prescriptivist", "adaptation", "literacy", "neologism"]
+  }
+]

@@ -1,0 +1,15 @@
+python-dotenv>=1.0.0
+torch>=2.2.0
+numpy>=1.26.0
+playwright>=1.53.0
+beautifulsoup4>=4.12.3
+keyboard>=0.13.5
+datasets>=4.8.0
+sentencepiece>=0.2.1
+pyautogui>=0.9.54
+psutil>=5.9.0
+cryptography>=42.0.0
+pywebview>=5.0
+jsonschema>=4.20.0
+# Optional GPU backends (non-NVIDIA cards):
+#   pip install torch-directml    # AMD, Intel, or any DirectX 12 GPU on Windows

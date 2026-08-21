@@ -1,0 +1,11 @@
+[ilm]
+name = "Ickle"
+mode = "local_first"
+truthfulness = "strict"
+
+[limits]
+max_tool_calls = 8
+require_clarification_on_vague = true
+
+[autonomy]
+default_mode = "balanced"

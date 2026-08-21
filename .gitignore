@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Kombai (design-to-code tool) local cache
+.kombai/
+
+# Model files (root models/, including nested dirs like models/candidates/)
+models/**/*.pt
+models/**/*.onnx
+models/**/*.pt.meta.json
+models/archive/
+
+# IckleTraining — merged subfolder (tracked, except heavy artefacts)
+IckleTraining/training_live.json
+IckleTraining/queued_wikipedia_learning.txt
+IckleTraining/topic_queues/
+
+# Runtime training data
+data/*.txt
+data/smoke_*
+data/training_packages/
+
+# Runtime data
+data/.tmp/
+data/.tmp_tests/
+data/.tmp_tooling/
+data/federated*/
+data/memory/
+data/task_queue.json
+data/task_queue.corrupt*
+data/test_task_queue/
+data/runtime_flags.json
+data/tasks/
+data/training_queue/
+data/training_resource_budget.json
+data/maintenance/
+data/continual/
+data/web_server_*.log
+data/model_library/
+data/runtime/
+data/ilm_state.json
+data/semantic_data.json
+data/skills/
+data/torickle/
+data/sessions/
+data/codistill/last_report.json
+data/codistill/peer_trust.json
+data/codistill/distilled_corpus.txt
+
+# Local trained checkpoints, teacher/distillation session logs, feedback
+# history, and registered knowledge-module deltas -- all personal training
+# output from actually running this instance, not part of a clean checkout
+# (matches the README's "no trained model checkpoints ship" claim).
+data/model_archive/
+data/teacher/
+data/deltas/
+data/hub_feedback.jsonl
+data/training_live.json
+
+# OS
+*.log
+*.pid
+
+# Android
+*.jks
+local.properties
+android/.gradle/
+android/gradle-8.5/
+android/gradle-8.5-bin.zip
+*.bak
+
+# Local runtime data
+data/ilm.db
+
+# Test data
+test_data.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI contributor instructionals (session-local, not part of the project)
+coder-ai-instructionals/
+
+# Environment secrets
+.env
+.hf_token
+!.env.example

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillCard",
+  "type": "object",
+  "required": ["name", "description", "corpus_path", "model_path", "activation_prompt"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "corpus_path": {"type": "string"},
+    "model_path": {"type": "string"},
+    "activation_prompt": {"type": "string"}
+  },
+  "additionalProperties": false
+}

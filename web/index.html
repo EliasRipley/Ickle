@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat with Ickle</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
+    <aside id="sidebar" class="sidebar">
+      <button id="new-session-btn" class="new-session-btn">+ New chat</button>
+      <div id="session-list" class="session-list"></div>
+      <div id="session-list-empty" class="session-list-empty" hidden>No chats yet. Send a message to start one.</div>
+      <div class="local-first-note">Local-first · Your chats and messages stay on this device and are never uploaded anywhere.</div>
+    </aside>
+
+    <div class="main-panel">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Show chat list" aria-expanded="false" aria-controls="sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+          </button>
+          <h1>Ickle</h1>
+          <button id="status-button" class="status-button" type="button" aria-expanded="false">
+            <span id="status-dot" class="dot dot-offline"></span>
+            <span id="status-label" class="label-muted">offline</span>
+          </button>
+        </div>
+        <div class="topbar-right">
+          <button id="manage-button" class="manage-button" type="button" hidden>Manage</button>
+          <label class="model-picker-label" for="model-select">Model</label>
+          <select id="model-select" class="model-picker" aria-label="Choose which trained model answers you"></select>
+          <label class="toggle" title="Let Ickle remember things you tell it across chats, stored only on this device.">
+            <input type="checkbox" id="memory-toggle" checked aria-describedby="memory-toggle-hint" />
+            <span>Remember</span>
+            <span id="memory-toggle-hint" class="sr-only">Let Ickle remember things you tell it across chats, stored only on this device.</span>
+          </label>
+          <label class="toggle" title="Let Ickle look things up on the web when it needs current information.">
+            <input type="checkbox" id="web-toggle" checked aria-describedby="web-toggle-hint" />
+            <span>Web search</span>
+            <span id="web-toggle-hint" class="sr-only">Let Ickle look things up on the web when it needs current information.</span>
+          </label>
+          <label class="toggle" title="Show Ickle's step-by-step reasoning before its final answer, when available.">
+            <input type="checkbox" id="thinking-toggle" checked aria-describedby="thinking-toggle-hint" />
+            <span>Show thinking</span>
+            <span id="thinking-toggle-hint" class="sr-only">Show Ickle's step-by-step reasoning before its final answer, when available.</span>
+          </label>
+          <label class="toggle" title="Let Ickle take multiple steps and use tools (web lookup, memory search) to answer, showing each step it took.">
+            <input type="checkbox" id="agent-toggle" aria-describedby="agent-toggle-hint" />
+            <span>Agent mode</span>
+            <span id="agent-toggle-hint" class="sr-only">Let Ickle take multiple steps and use tools to answer, showing each step it took.</span>
+          </label>
+          <label class="toggle" id="code-exec-toggle-label" title="Let Ickle read, write, and run code on this device while in Agent mode. Only takes effect together with Agent mode." hidden>
+            <input type="checkbox" id="code-exec-toggle" aria-describedby="code-exec-toggle-hint" />
+            <span>Allow code execution</span>
+            <span id="code-exec-toggle-hint" class="sr-only">Let Ickle read, write, and run code on this device while in Agent mode.</span>
+          </label>
+          <label class="toggle" title="Show exactly what the model generates, without the filter that normally replaces garbled or off-topic output with an honest 'not sure' message. Useful for judging a freshly trained model's real ability -- off by default because raw output from an undertrained model can look broken.">
+            <input type="checkbox" id="raw-output-toggle" aria-describedby="raw-output-toggle-hint" />
+            <span>Show raw output</span>
+            <span id="raw-output-toggle-hint" class="sr-only">Show exactly what the model generates, skipping the filter that normally replaces low-quality output with an uncertainty message.</span>
+          </label>
+        </div>
+      </header>
+
+      <section id="system-panel" class="system-panel" hidden>
+        <div><span>Model</span><strong id="system-model">—</strong></div>
+        <div><span>Training</span><strong id="system-training">—</strong></div>
+        <p id="system-detail">Ickle runs locally on this device.</p>
+      </section>
+
+      <main id="chat-area" class="chat-area">
+        <div id="onboarding-banner" class="onboarding-banner" hidden>
+          <p>Ickle can optionally connect to peers you know (or who know you) to share training and model improvements — nothing is sent anywhere unless you turn it on and add a peer in <strong>Manage → Network</strong>.</p>
+          <div class="onboarding-banner-actions">
+            <button id="onboarding-learn-more" type="button">Show me</button>
+            <button id="onboarding-dismiss" type="button" aria-label="Dismiss">&times;</button>
+          </div>
+        </div>
+        <div class="chat-empty-state">
+          <div class="logo">Ickle</div>
+          <p>Your local AI assistant</p>
+          <p class="sub">Everything runs on this device. Type a message below to get started.</p>
+        </div>
+      </main>
+
+      <div id="image-attach-preview" class="image-attach-preview" hidden>
+        <img id="image-attach-thumb" alt="Attached image preview" />
+        <span id="image-attach-name" class="image-attach-name"></span>
+        <button id="image-attach-remove" type="button" aria-label="Remove attached image">&times;</button>
+      </div>
+      <footer class="input-bar">
+        <input type="file" id="image-attach-input" accept="image/*" hidden />
+        <button id="image-attach-btn" type="button" title="Attach an image (Ickle can read text in it and describe it)" aria-label="Attach an image">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+          </svg>
+        </button>
+        <textarea
+          id="prompt-input"
+          rows="1"
+          placeholder="Message Ickle..."
+          autofocus
+        ></textarea>
+        <button id="send-btn" type="button" title="Send message" aria-label="Send message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+          </svg>
+        </button>
+      </footer>
+      <div class="input-hint">Enter to send · Shift+Enter for a new line</div>
+    </div>
+  </div>
+
+  <div id="manage-scrim" class="manage-scrim" hidden></div>
+  <div id="manage-modal" class="manage-modal" hidden role="dialog" aria-modal="true" aria-labelledby="manage-title">
+    <div class="manage-header">
+      <h2 id="manage-title">Manage Ickle</h2>
+      <button id="manage-close" class="manage-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="manage-tabs">
+      <button class="manage-tab active" data-tab="train" type="button">Training</button>
+      <button class="manage-tab" data-tab="teach" type="button">Teach</button>
+      <button class="manage-tab" data-tab="tasks" type="button">Background tasks</button>
+      <button class="manage-tab" data-tab="models" type="button">Models</button>
+      <button class="manage-tab" data-tab="memory" type="button">Memory</button>
+      <button class="manage-tab" data-tab="dashboard" type="button">Dashboard</button>
+      <button class="manage-tab" data-tab="network" type="button">Network</button>
+      <button class="manage-tab" data-tab="addons" type="button">Add-ons</button>
+      <button class="manage-tab" data-tab="sharing" type="button">Sharing</button>
+      <button class="manage-tab" data-tab="research" type="button">Research</button>
+      <button class="manage-tab" data-tab="automation" type="button">Automation</button>
+    </div>
+
+    <div id="manage-tab-train" class="manage-tab-panel">
+      <div id="train-active" class="train-active" hidden>
+        <p id="train-active-summary">Training is running.</p>
+        <div class="train-progress-track"><div id="train-progress-bar" class="train-progress-bar"></div></div>
+        <p id="train-active-detail" class="hint-text"></p>
+        <div id="train-stats" class="train-stats" hidden></div>
+        <button id="train-stop-btn" class="danger-button" type="button">Stop training</button>
+      </div>
+
+      <form id="train-form" class="train-form">
+        <label>What do you want to train?</label>
+        <div class="train-source-options">
+          <label class="train-source-option">
+            <input type="radio" name="train-target" value="continue" checked />
+            <span>Keep improving the model I'm using now</span>
+          </label>
+          <label class="train-source-option">
+            <input type="radio" name="train-target" value="new" />
+            <span>Start a brand new model</span>
+          </label>
+        </div>
+
+        <div id="train-name-field">
+          <label for="train-name">Name this model</label>
+          <input id="train-name" type="text" placeholder="e.g. my-ickle" maxlength="60" />
+        </div>
+
+        <label>What should it learn from?</label>
+        <div class="train-source-options">
+          <label class="train-source-option">
+            <input type="radio" name="train-source" value="wikipedia" checked />
+            <span>General knowledge (random Wikipedia articles)</span>
+          </label>
+          <label class="train-source-option">
+            <input type="radio" name="train-source" value="conversations" />
+            <span>Helpful conversation examples</span>
+          </label>
+          <label class="train-source-option">
+            <input type="radio" name="train-source" value="hf_dataset" />
+            <span>A dataset from Hugging Face</span>
+          </label>
+          <label class="train-source-option">
+            <input type="radio" name="train-source" value="custom" />
+            <span>A text file on this computer</span>
+          </label>
+        </div>
+        <input id="train-custom-path" type="text" placeholder="Path to a .txt file" aria-label="Path to a text file on this computer" hidden />
+        <input id="train-hf-dataset" type="text" placeholder="Dataset name, e.g. wikitext" aria-label="Hugging Face dataset name" hidden />
+
+        <div id="train-size-field">
+          <label>How big should it be?</label>
+          <div class="train-source-options">
+            <label class="train-source-option">
+              <input type="radio" name="train-size" value="quick" checked />
+              <span>Quick — a smaller model, usually done in well under an hour on this device</span>
+            </label>
+            <label class="train-source-option">
+              <input type="radio" name="train-size" value="standard" />
+              <span>Standard — a bigger, more capable model, but can take many hours (or much longer) without a GPU</span>
+            </label>
+          </div>
+        </div>
+
+        <button id="train-start-btn" type="submit">Start training</button>
+        <p class="hint-text">This runs on your device and can take a while. You can keep chatting while it trains, and close this window any time — training keeps going in the background.</p>
+      </form>
+      <p id="train-error" class="manage-error" hidden></p>
+
+      <div class="teach-section">
+        <h3>How much of your machine training can use</h3>
+        <p class="hint-text">Applies to every training run (including autonomous ones below) until you change it again.</p>
+        <div class="resource-budget-row">
+          <label for="budget-cpu">Processor</label>
+          <input id="budget-cpu" type="range" min="10" max="90" step="5" />
+          <span id="budget-cpu-value" class="resource-budget-value">--</span>
+        </div>
+        <div class="resource-budget-row">
+          <label for="budget-ram">Memory</label>
+          <input id="budget-ram" type="range" min="10" max="90" step="5" />
+          <span id="budget-ram-value" class="resource-budget-value">--</span>
+        </div>
+        <div class="resource-budget-row" id="budget-gpu-row" hidden>
+          <label for="budget-gpu">Graphics card</label>
+          <input id="budget-gpu" type="range" min="10" max="90" step="5" />
+          <span id="budget-gpu-value" class="resource-budget-value">--</span>
+        </div>
+        <button id="budget-save-btn" class="manage-primary-btn" type="button">Save limits</button>
+        <p id="budget-save-result" class="hint-text"></p>
+      </div>
+
+      <div class="teach-section">
+        <h3>Autonomous training program</h3>
+        <p class="hint-text">Give Ickle a topic list (or leave it blank to let it pick topics based on where it's weak) and a step budget, and it plans and runs a multi-pass training program on its own -- you don't have to babysit each step.</p>
+        <form id="program-form" class="train-form">
+          <label for="program-topics">Topics (comma-separated, optional)</label>
+          <input id="program-topics" type="text" placeholder="e.g. photosynthesis, the French Revolution -- leave blank to auto-pick" />
+          <label for="program-passes">How many topics/passes</label>
+          <input id="program-passes" type="number" min="1" max="8" value="2" />
+          <label for="program-steps">Steps per pass</label>
+          <input id="program-steps" type="number" min="100" step="100" value="1000" />
+          <button id="program-start-btn" type="submit">Start autonomous program</button>
+        </form>
+        <p id="program-disabled-note" class="hint-text" hidden>This needs "Allow autonomous training" turned on in the Automation tab first.</p>
+        <p id="program-error" class="manage-error" hidden></p>
+      </div>
+    </div>
+
+    <div id="manage-tab-teach" class="manage-tab-panel" hidden>
+      <div class="teach-section">
+        <h3>Learn from another AI</h3>
+        <p class="hint-text">Ask an AI teacher for example questions and answers on a topic, then train Ickle from them.</p>
+        <form id="teach-generate-form" class="train-form">
+          <label for="teach-provider">Teacher</label>
+          <select id="teach-provider">
+            <option value="anthropic">Claude (uses ANTHROPIC_API_KEY from your environment)</option>
+          </select>
+          <details id="teach-provider-advanced">
+            <summary>Use a different provider</summary>
+            <label for="teach-provider-key">Registered provider key</label>
+            <input id="teach-provider-key" type="text" placeholder="e.g. openai:gpt-4o-mini" />
+            <p class="hint-text">Set up with <code>python -m src.app trainer-provider register ...</code> first.</p>
+          </details>
+          <label for="teach-topic">Topic</label>
+          <input id="teach-topic" type="text" placeholder="e.g. photosynthesis" maxlength="120" required />
+          <label for="teach-count">How many examples</label>
+          <input id="teach-count" type="number" min="1" max="50" value="8" />
+          <button id="teach-generate-btn" type="submit">Generate training data</button>
+        </form>
+        <p id="teach-generate-error" class="manage-error" hidden></p>
+        <p id="teach-stats" class="hint-text">Loading...</p>
+        <button id="teach-train-btn" class="manage-primary-btn" type="button">Train from this data</button>
+        <p id="teach-train-error" class="manage-error" hidden></p>
+      </div>
+
+      <div class="teach-section">
+        <h3>Learn from your ratings</h3>
+        <p class="hint-text">Ickle can learn from the 👍/👎 you give its answers in chat. This needs at least a couple of prompts you've rated more than once with different scores -- a single rating isn't enough to show Ickle which answer was better.</p>
+        <button id="teach-dpo-build-btn" class="manage-primary-btn" type="button">Build preference pairs from your feedback</button>
+        <p id="teach-dpo-stats" class="hint-text"></p>
+        <p id="teach-dpo-build-error" class="manage-error" hidden></p>
+        <button id="teach-dpo-train-btn" class="manage-primary-btn" type="button">Align model</button>
+        <p id="teach-dpo-train-error" class="manage-error" hidden></p>
+      </div>
+    </div>
+
+    <div id="manage-tab-tasks" class="manage-tab-panel" hidden>
+      <form id="quick-task-form" class="network-add-peer-form">
+        <input id="quick-task-input" type="text" placeholder="e.g. 'learn about volcanoes from wikipedia' or 'learn about the James Webb telescope from the internet'" aria-label="Describe a background task for Ickle to do" />
+        <button id="quick-task-btn" type="submit">Do it</button>
+      </form>
+      <p id="quick-task-result" class="hint-text"></p>
+      <div id="tasks-list" class="tasks-list"></div>
+      <p id="tasks-empty" class="hint-text" hidden>No background tasks yet.</p>
+    </div>
+
+    <div id="manage-tab-models" class="manage-tab-panel" hidden>
+      <p class="hint-text">Models you've trained or imported. The active one answers your chats.</p>
+      <div id="models-list" class="models-list"></div>
+      <p id="models-empty" class="hint-text" hidden>No models found yet.</p>
+      <button id="models-cleanup-btn" class="danger-button" type="button">Clean up old models</button>
+      <p id="models-cleanup-result" class="hint-text"></p>
+      <button id="training-data-cleanup-btn" class="danger-button" type="button">Clean up old training data</button>
+      <p id="training-data-cleanup-result" class="hint-text"></p>
+      <button id="workspace-cleanup-btn" class="danger-button" type="button">Clean up runtime/maintenance files</button>
+      <p id="workspace-cleanup-result" class="hint-text"></p>
+    </div>
+
+    <div id="manage-tab-memory" class="manage-tab-panel" hidden>
+      <p id="memory-summary" class="hint-text">Loading...</p>
+      <form id="memory-search-form" class="train-form">
+        <input id="memory-search-input" type="text" placeholder="Search what Ickle remembers..." aria-label="Search memory" />
+      </form>
+      <div id="memory-results" class="tasks-list"></div>
+
+      <div class="teach-section">
+        <h3>Teach Ickle a fact directly</h3>
+        <form id="memory-add-fact-form" class="train-form">
+          <input id="memory-add-fact-input" type="text" placeholder="e.g. My favourite language is Python" />
+          <input id="memory-add-fact-category" type="text" placeholder="Category (optional, e.g. preferences)" />
+          <button id="memory-add-fact-btn" type="submit">Remember this</button>
+        </form>
+        <p id="memory-add-fact-result" class="hint-text"></p>
+      </div>
+
+      <div class="teach-section">
+        <h3>Everything Ickle remembers</h3>
+        <div id="memory-facts-list" class="tasks-list"></div>
+        <p id="memory-facts-empty" class="hint-text" hidden>No stored facts yet.</p>
+      </div>
+
+      <button id="memory-export-btn" class="manage-primary-btn" type="button">Save a backup of everything Ickle remembers</button>
+      <p id="memory-export-result" class="hint-text"></p>
+      <button id="memory-forget-btn" class="danger-button" type="button">Forget everything</button>
+    </div>
+
+    <div id="manage-tab-dashboard" class="manage-tab-panel" hidden>
+      <div class="gauge-row">
+        <div class="gauge">
+          <div class="gauge-label">Compute in use</div>
+          <div class="gauge-track"><div id="gauge-cpu" class="gauge-bar"></div></div>
+          <div id="gauge-cpu-text" class="gauge-text">--</div>
+        </div>
+        <div class="gauge">
+          <div class="gauge-label">Memory in use</div>
+          <div class="gauge-track"><div id="gauge-ram" class="gauge-bar"></div></div>
+          <div id="gauge-ram-text" class="gauge-text">--</div>
+        </div>
+        <div class="gauge">
+          <div class="gauge-label">Disk space free</div>
+          <div class="gauge-track"><div id="gauge-disk" class="gauge-bar"></div></div>
+          <div id="gauge-disk-text" class="gauge-text">--</div>
+        </div>
+      </div>
+      <p id="gauge-gpu-text" class="hint-text"></p>
+    </div>
+
+    <div id="manage-tab-network" class="manage-tab-panel" hidden>
+      <p class="hint-text">Ickle can share training and models directly with peers whose address you add (or who add yours) -- the same way a torrent gets faster with more people sharing it. There's no automatic public directory yet, so this connects to people you know, not strangers on the internet.</p>
+      <label class="toggle" id="network-join-toggle-label">
+        <input type="checkbox" id="network-join-toggle" />
+        <span>Join peer network</span>
+      </label>
+      <div id="network-summary"></div>
+      <div class="network-peers-section">
+        <p class="hint-text">Known peers</p>
+        <form id="network-add-peer-form" class="network-add-peer-form">
+          <input id="network-add-peer-input" type="text" placeholder="host:port, e.g. 192.168.1.20:8790" aria-label="Peer host and port to add" />
+          <button id="network-add-peer-btn" type="submit">Add</button>
+        </form>
+        <p id="network-add-peer-error" class="manage-error" hidden></p>
+        <div id="network-peers-list" class="tasks-list"></div>
+        <p id="network-peers-empty" class="hint-text" hidden>No peers added yet.</p>
+      </div>
+
+      <details class="advanced-details">
+        <summary>Advanced: centralized training coordinator</summary>
+        <p class="hint-text">A separate, CLI-only way to federate full training rounds across devices through one coordinator, instead of the peer-to-peer sharing above. Set up with <code>python -m src.app federated-server</code> / <code>federated-client</code>. This just shows its status if you're already running one.</p>
+        <p id="federated-coordinator-status" class="hint-text">Loading...</p>
+      </details>
+
+      <div class="network-peers-section">
+        <p class="hint-text">Peer teaching (co-distillation): Ickle's federated training above only pools peers running the exact same model architecture. This lets <strong>any</strong> peer running "infer serve" -- whatever size or shape their model is -- teach yours instead, by asking a shared question set and only keeping answers multiple peers agree on. Nothing is trusted blindly: agreed answers still go through the normal review/rollback safety checks before anything is learned.</p>
+        <button id="codistill-run-btn" type="button">Run a teaching round now</button>
+        <p id="codistill-run-status" class="hint-text"></p>
+        <div id="codistill-last-report" class="hint-text"></div>
+        <p class="hint-text" id="codistill-trust-heading" hidden>Peers ranked by how often their answers have agreed with the group:</p>
+        <div id="codistill-trust-list" class="tasks-list"></div>
+      </div>
+    </div>
+
+    <div id="manage-tab-addons" class="manage-tab-panel" hidden>
+      <p class="hint-text">Add-ons are extra topic knowledge Ickle has learned on top of its base model. Turn them off if one seems to be making answers worse.</p>
+      <div id="addons-list" class="tasks-list"></div>
+      <p id="addons-empty" class="hint-text" hidden>No add-ons installed yet.</p>
+    </div>
+
+    <div id="manage-tab-sharing" class="manage-tab-panel" hidden>
+      <p class="hint-text">Ickle can share and receive model improvements directly with other peers, like sharing a torrent, instead of going through a central server.</p>
+      <div id="sharing-summary"></div>
+
+      <div id="contribution-panel" class="contribution-panel" hidden>
+        <div class="contribution-header">
+          <span>Your contribution to the network</span>
+          <span id="contribution-ratio" class="contribution-ratio">--</span>
+        </div>
+        <div class="train-progress-track"><div id="contribution-bar" class="train-progress-bar"></div></div>
+        <p id="contribution-detail" class="hint-text"></p>
+      </div>
+      <p id="contribution-empty" class="hint-text" hidden>You haven't given or used anything from the network yet.</p>
+
+      <div id="sharing-bundles" class="tasks-list"></div>
+    </div>
+
+    <div id="manage-tab-research" class="manage-tab-panel" hidden>
+      <p class="hint-text">Notes Ickle has built up from web research it's done for you or itself -- separate from the "Memory" tab's facts about you.</p>
+      <form id="research-search-form" class="network-add-peer-form">
+        <input id="research-search-input" type="text" placeholder="Search research notes..." aria-label="Search research notes" />
+        <button id="research-search-btn" type="submit">Search</button>
+      </form>
+      <div id="research-results" class="tasks-list"></div>
+      <p id="research-results-empty" class="hint-text" hidden>No matching notes.</p>
+
+      <div class="teach-section">
+        <h3>Recent research sessions</h3>
+        <div id="research-sessions-list" class="tasks-list"></div>
+        <p id="research-sessions-empty" class="hint-text" hidden>No research sessions yet.</p>
+      </div>
+    </div>
+
+    <div id="manage-tab-automation" class="manage-tab-panel" hidden>
+      <p class="hint-text">What Ickle is allowed to do on its own, without you asking each time. Everything here defaults to what the app shipped with -- change anything that doesn't match how much control you want to keep.</p>
+
+      <label class="toggle automation-toggle" title="Turn chat off entirely -- the API refuses new messages while this is off.">
+        <input type="checkbox" id="automation-chat-enabled" />
+        <span>Chat enabled</span>
+      </label>
+      <label class="toggle automation-toggle" title="Let Ickle run queued background tasks (training, maintenance, teaching) at all. Turning this off pauses the whole task queue.">
+        <input type="checkbox" id="automation-worker-enabled" />
+        <span>Run background tasks</span>
+      </label>
+      <label class="toggle automation-toggle" title="Let Ickle plan and start its own training programs (the autonomous program on the Training tab, and any self-improvement loops) without you explicitly starting each one.">
+        <input type="checkbox" id="automation-auto-training" />
+        <span>Allow autonomous training</span>
+      </label>
+      <label class="toggle automation-toggle" title="Run more than one background task at the same time when there's more than one queued.">
+        <input type="checkbox" id="automation-parallel-training" />
+        <span>Run background tasks in parallel</span>
+      </label>
+      <div class="resource-budget-row">
+        <label for="automation-max-parallel">Max parallel background tasks</label>
+        <input id="automation-max-parallel" type="number" min="1" max="4" value="2" />
+      </div>
+      <p id="automation-error" class="manage-error" hidden></p>
+      <p id="automation-saved-note" class="hint-text"></p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

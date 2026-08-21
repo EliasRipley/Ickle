@@ -1,0 +1,513 @@
+openapi: 3.1.0
+info:
+  title: Ickle ILM Local API
+  version: 0.2.0
+  description: >
+    Two local HTTP servers, not one API: serve-web (chat, default port 8787)
+    and serve-control (training/tasks/memory/network/maintenance, default
+    port 8788). A serve-web page auto-discovers its paired control port via
+    GET /api/control-port rather than it being fixed. This file was
+    previously a partial draft (8 endpoints) covering neither server fully;
+    it now lists every path either server actually implements, source of
+    truth verified against src/serve_web.py and src/serve_control.py.
+servers:
+  - url: http://127.0.0.1:8787
+    description: Chat web server (serve-web) -- also serves the static web/ UI at "/"
+  - url: http://127.0.0.1:8788
+    description: Control API server (serve-control)
+paths:
+  # --- Shared by both servers ---
+  /reality-check:
+    get:
+      summary: Claims-vs-implementation audit report
+      responses:
+        '200':
+          description: JSON array of {area, status, detail} checks
+  /api/status:
+    get:
+      summary: Runtime status (flags, active model, training state, reality checks)
+      responses:
+        '200':
+          description: Status report
+  /api/flags:
+    get:
+      summary: Get persisted runtime feature flags
+      responses:
+        '200':
+          description: Current flags (chat_enabled, memory_enabled, federated_enabled, etc.)
+    post:
+      summary: Update one or more runtime feature flags
+      responses:
+        '200':
+          description: Updated flags
+  /api/models:
+    get:
+      summary: List available trained/imported models
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 80 }
+        - name: include_checkpoints
+          in: query
+          schema: { type: boolean, default: false }
+        - name: all
+          in: query
+          description: If false (default), only the active model + up to 2 recent ones are returned
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Model list
+
+  # --- serve-web only: chat ---
+  /:
+    get:
+      summary: Static web UI (web/index.html and assets)
+      responses:
+        '200': { description: HTML/JS/CSS }
+  /api/control-port:
+    get:
+      summary: Discover the paired control-API port for this chat server, if one is running
+      responses:
+        '200':
+          description: '{"control_port": number | null}'
+  /api/chat:
+    post:
+      summary: Non-streaming chat (batched through the generation queue if enabled)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt: { type: string }
+                model: { type: string }
+                thinking_mode: { type: boolean }
+                enable_memory: { type: boolean }
+                enable_web_tools: { type: boolean }
+                agent: { type: boolean }
+                allow_code_execution: { type: boolean }
+                raw_output:
+                  type: boolean
+                  description: Bypass the quality/relevance gate's low_confidence-only labeling and show generation unfiltered (there is no text substitution in either mode -- see low_confidence in the response)
+                image_base64: { type: string }
+      responses:
+        '200':
+          description: '{response, reasoning, model, confidence, low_confidence, think_assessment}'
+  /api/chat/stream:
+    get:
+      summary: SSE streaming chat (GET, params in query string)
+      parameters:
+        - name: prompt
+          in: query
+          required: true
+          schema: { type: string }
+        - name: model
+          in: query
+          schema: { type: string }
+        - name: thinking_mode
+          in: query
+          schema: { type: boolean }
+        - name: enable_memory
+          in: query
+          schema: { type: boolean }
+        - name: enable_web_tools
+          in: query
+          schema: { type: boolean }
+        - name: agent
+          in: query
+          schema: { type: boolean }
+        - name: allow_code_execution
+          in: query
+          schema: { type: boolean }
+        - name: raw_output
+          in: query
+          schema: { type: boolean }
+        - name: session_id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 'text/event-stream: reasoning_start/reasoning/reasoning_end, text (chunked), done ({low_confidence}), stream_error'
+    post:
+      summary: SSE streaming chat (POST, same fields as /api/chat plus this endpoint's own params, as a JSON body instead of query string)
+      responses:
+        '200':
+          description: Same event stream as GET
+  /api/feedback:
+    post:
+      summary: Record a 1-5 rating on a prompt/response pair (feeds build_preference_pairs)
+      responses:
+        '200': { description: '{saved, rating}' }
+  /api/sessions:
+    get:
+      summary: List chat sessions
+      responses:
+        '200': { description: Session list }
+    post:
+      summary: Create a chat session
+      responses:
+        '201': { description: Created session }
+  /api/sessions/{session_id}/messages:
+    get:
+      summary: Get a session's messages
+      responses:
+        '200': { description: '{messages}' }
+        '404': { description: Session not found }
+    post:
+      summary: Append a message to a session
+      responses:
+        '200': { description: '{message}' }
+  /api/sessions/{session_id}/delete:
+    post:
+      summary: Delete a session (POST variant)
+      responses:
+        '200': { description: '{deleted}' }
+  /api/sessions/{session_id}:
+    delete:
+      summary: Delete a session
+      responses:
+        '200': { description: '{deleted}' }
+  /api/attach-preview:
+    post:
+      summary: Upload an image for chat-attach preview, returns a short-lived id/url
+      description: "Serves the thumbnail back over plain HTTP instead of a blob:/data: URI, which WebView2 (the desktop app's renderer) has documented rendering issues with."
+      responses:
+        '201': { description: '{id, url}' }
+  /api/attach-preview/{id}:
+    get:
+      summary: Fetch a previously-uploaded attach-preview image (expires after a few minutes)
+      responses:
+        '200': { description: Raw image bytes }
+        '404': { description: Not found or expired }
+    delete:
+      summary: Delete an attach-preview image early
+      responses:
+        '200': { description: '{deleted}' }
+
+  # --- serve-control only: training/tasks ---
+  /api/training/progress:
+    get:
+      summary: Recent training progress snapshots
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25 }
+      responses:
+        '200': { description: Progress history }
+  /api/system/resources:
+    get:
+      summary: Detected hardware + current training resource budget
+      responses:
+        '200': { description: '{detected, resource_budget, updated_at_utc}' }
+    post:
+      summary: Update the training resource budget (cpu_percent, ram_percent, gpu_percent)
+      responses:
+        '200': { description: '{resource_budget, derived_training_overrides}' }
+  /api/system/live:
+    get:
+      summary: Live CPU/RAM/disk/GPU usage (for the Dashboard tab)
+      responses:
+        '200': { description: Live stats }
+  /api/tasks:
+    get:
+      summary: List background tasks
+      responses:
+        '200': { description: '{tasks}' }
+    post:
+      summary: Create a background task directly (task_type + payload)
+      responses:
+        '200': { description: Created task }
+  /api/tasks/infer:
+    post:
+      summary: Turn a plain-English instruction into a task, optionally queue it
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instruction: { type: string }
+                queue: { type: boolean, default: false }
+      responses:
+        '200': { description: '{inferred, queued_task?}' }
+  /api/tasks/{task_id}/cancel:
+    post:
+      summary: Cancel a queued or running task
+      responses:
+        '200': { description: '{cancelled, task_id}' }
+  /api/programs/research-train:
+    post:
+      summary: Queue an autonomous multi-pass research-and-train program (requires allow_auto_training_tasks flag)
+      responses:
+        '200': { description: Queued root + follow-up task chain }
+        '403': { description: allow_auto_training_tasks is disabled }
+  /api/open-dataset-ingest:
+    post:
+      summary: Bounded streaming ingest from a HuggingFace dataset
+      responses:
+        '200': { description: Ingest result }
+
+  # --- serve-control only: memory ---
+  /api/memory/summary:
+    get:
+      summary: Memory summary (fact/conversation/research counts)
+      responses:
+        '200': { description: Summary }
+  /api/memory/facts:
+    get:
+      summary: List remembered facts
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 40 }
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: '{facts}' }
+    post:
+      summary: Teach a fact directly
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fact: { type: string }
+                category: { type: string, default: general }
+                source: { type: string }
+                confidence: { type: number, default: 0.8 }
+      responses:
+        '200': { description: '{ok, summary}' }
+  /api/memory/context:
+    get:
+      summary: Recent conversation context entries
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 30 }
+      responses:
+        '200': { description: '{context}' }
+  /api/memory/export:
+    get:
+      summary: Export everything remembered as a single JSON blob
+      responses:
+        '200': { description: Full export }
+  /api/memory/export/save:
+    post:
+      summary: Save the memory export to a timestamped file under data/memory/exports/ and return its path
+      responses:
+        '200': { description: '{path}' }
+  /api/memory/search:
+    post:
+      summary: Search facts, research notes, and web facts by query
+      responses:
+        '200': { description: '{query, facts, research_notes, web_facts}' }
+  /api/memory/clear:
+    post:
+      summary: Clear memory (all, or one memory_type)
+      responses:
+        '200': { description: '{ok, cleared, summary}' }
+  /api/research/sessions:
+    get:
+      summary: List recent research sessions
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200': { description: '{sessions}' }
+  /api/research/find:
+    get:
+      summary: Search research notes
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+        - name: topic_hint
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: '{notes}' }
+
+  # --- serve-control only: maintenance ---
+  /api/maintenance/model:
+    post:
+      summary: Archive old model checkpoints
+      responses:
+        '200': { description: '{status_counts, ...}' }
+  /api/maintenance/training:
+    post:
+      summary: Archive/compact old training corpus and queue files
+      responses:
+        '200': { description: '{status_counts, queue_stats, actions}' }
+  /api/maintenance/data:
+    post:
+      summary: Clean up runtime logs and maintenance-workspace files
+      responses:
+        '200': { description: '{status_counts, actions}' }
+  /api/workspace-check:
+    get:
+      summary: Runtime-vs-training-data workspace separation diagnostics
+      responses:
+        '200': { description: '{checks}' }
+
+  # --- serve-control only: knowledge deltas / add-ons ---
+  /api/deltas:
+    get:
+      summary: List installed knowledge deltas (add-ons)
+      responses:
+        '200': { description: '{deltas}' }
+  /api/deltas/enable:
+    post:
+      summary: Enable a knowledge delta
+      responses:
+        '200': { description: Updated delta }
+  /api/deltas/disable:
+    post:
+      summary: Disable a knowledge delta
+      responses:
+        '200': { description: Updated delta }
+  /api/deltas/rollback:
+    post:
+      summary: Roll a knowledge delta back to its previous version
+      responses:
+        '200': { description: Updated delta }
+  /api/deltas/threshold:
+    post:
+      summary: Set a knowledge delta's activation-sensitivity threshold
+      responses:
+        '200': { description: Updated delta }
+
+  # --- serve-control only: P2P swarm (torickle/delta sharing) ---
+  /api/torickle/status:
+    get:
+      summary: Real-time swarm status -- also the source for the Network tab's peer count and the Sharing tab's bundle count
+      responses:
+        '200': { description: '{active, enabled, peer_id, bundles_served, peers_known, host, port, external_host, known_peers}' }
+  /api/torickle/bundles:
+    get:
+      summary: List locally-held torickle bundles
+      responses:
+        '200': { description: '{bundles}' }
+  /api/torickle/find:
+    get:
+      summary: Find bundles known to this node (optionally filtered by model_hash)
+      parameters:
+        - name: model_hash
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: '{bundles}' }
+  /api/torickle/import:
+    post:
+      summary: Import a torickle bundle directory
+      responses:
+        '200': { description: Import result }
+  /api/torickle/announce:
+    post:
+      summary: Announce a locally-held bundle to the swarm
+      responses:
+        '200': { description: Announcement result }
+  /api/torickle/pull:
+    post:
+      summary: Download a bundle from a specific peer
+      responses:
+        '200': { description: Pull result }
+  /api/torickle/reassemble:
+    post:
+      summary: Reassemble a downloaded bundle's pieces into a usable delta file
+      responses:
+        '200': { description: Reassembly result }
+  /api/swarm/join:
+    post:
+      summary: Turn on peer-network participation (binds externally, joins known peers)
+      responses:
+        '200': { description: Swarm status after joining }
+  /api/swarm/leave:
+    post:
+      summary: Turn off peer-network participation (back to loopback-only)
+      responses:
+        '200': { description: Swarm status after leaving }
+  /api/swarm/peers/add:
+    post:
+      summary: Add a known peer address (host:port) and immediately try to join through it
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address: { type: string, example: "192.168.1.20:8790" }
+      responses:
+        '200': { description: '{peers}' }
+  /api/swarm/peers/remove:
+    post:
+      summary: Remove a known peer address
+      responses:
+        '200': { description: '{peers}' }
+  /api/contribution/status:
+    get:
+      summary: Local seed:peer contribution ledger status
+      responses:
+        '200': { description: Contribution status }
+  /api/federated/status:
+    get:
+      summary: >-
+        Status of the separate, CLI-only centralized-coordinator subsystem
+        (src/federated/server.py + client.py), if one happens to be running
+        on this machine. Distinct from /api/torickle/status (the real,
+        default peer-to-peer swarm) -- this reads a state file only written
+        by manually starting `python -m src.app federated-server`.
+      responses:
+        '200': { description: '{coordinator_running, clients, active_round, completed_rounds, ...}' }
+
+  # --- serve-control only: teach (learn from a teacher AI / from ratings) ---
+  /api/teach/stats:
+    get:
+      summary: Teacher-generated training example counts
+      responses:
+        '200': { description: Stats }
+  /api/teach/sessions:
+    get:
+      summary: List teaching sessions
+      responses:
+        '200': { description: '{sessions}' }
+    post:
+      summary: Start a teaching session
+      responses:
+        '201': { description: Created session }
+  /api/teach/sessions/{session_id}:
+    get:
+      summary: Get a teaching session
+      responses:
+        '200': { description: Session }
+  /api/teach/sessions/{session_id}/turn:
+    post:
+      summary: Add a turn to a teaching session
+      responses:
+        '201': { description: Updated session }
+  /api/teach/sessions/{session_id}/close:
+    post:
+      summary: Close a teaching session
+      responses:
+        '200': { description: Closed session }
+  /api/teach/corpus/build-sft:
+    post:
+      summary: Build an SFT training corpus from teacher sessions
+      responses:
+        '200': { description: Build result }
+  /api/teach/corpus/build-prefs:
+    post:
+      summary: Build DPO preference pairs from rated feedback
+      responses:
+        '200': { description: Build result }
+  /api/teach/train:
+    post:
+      summary: Train from previously-built teacher data
+      responses:
+        '200': { description: Queued/started training }
