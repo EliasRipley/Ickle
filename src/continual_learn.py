@@ -53,7 +53,6 @@ def run_training(corpus_path: str, out_model: str, steps: int, cpu_pct: int, ram
         str(ram_pct),
         "--gpu-pct",
         str(gpu_pct),
-        "--bootstrap-english",
     ]
     subprocess.run(cmd, check=True)
 

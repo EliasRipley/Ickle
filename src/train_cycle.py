@@ -83,7 +83,6 @@ def main():
             cpu_pct=args.cpu_pct,
             ram_pct=args.ram_pct,
             gpu_pct=args.gpu_pct,
-            bootstrap_english=True,
         )
         run_train_command(cmd, error_label="train-cycle")
 

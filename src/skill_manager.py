@@ -50,7 +50,6 @@ def cmd_learn(reg: SkillRegistry, name: str, corpus: str, out_model: str, steps:
             str(ram_pct),
             "--gpu-pct",
             str(gpu_pct),
-            "--bootstrap-english",
         ]
         subprocess.run(cmd, check=True)
 

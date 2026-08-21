@@ -39,7 +39,6 @@ def build_train_command(
     tokenizer: str = "",
     spm_vocab_size: int = 0,
     spm_model_type: str = "",
-    bootstrap_english: bool = False,
     extra_args: list[str] | None = None,
 ) -> list[str]:
     """Build the argv for a `src.train` subprocess invocation.
@@ -72,8 +71,6 @@ def build_train_command(
         cmd.extend(["--batch-size", str(int(batch_size))])
     if int(grad_accum_steps) > 1:
         cmd.extend(["--grad-accum-steps", str(int(grad_accum_steps))])
-    if bootstrap_english:
-        cmd.append("--bootstrap-english")
 
     checkpoint_exists = bool(checkpoint_path and Path(checkpoint_path).exists())
     if resume_if_possible and checkpoint_exists:

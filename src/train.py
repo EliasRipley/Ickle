@@ -18,7 +18,6 @@ import torch.nn.functional as F
 from src.device_bridge import detect_accelerator, get_amp_device_type, resolve_amp_dtype
 from src.workspace_paths import get_training_root, get_training_corpus_dir
 
-from src.english_seed import ENGLISH_BOOTSTRAP_TEXT
 from src.federated.lora import LoRAConfig, inject_lora, get_lora_state_dict, load_lora_state_dict
 from src.ilm_profile import apply_cpu_thread_budget, detect_resources, resolve_resource_config, resolve_model_config, ResourceConfig
 from src.model import TinyConfig, ILM
@@ -179,17 +178,19 @@ def shuffle_in_chunks(encoded: torch.Tensor, *, chunk_size: int, seed: int) -> t
     local structure within each chunk while randomizing macro-order.
 
     Training text is built by concatenating sources in a fixed sequence
-    (streamed dataset, then a second streamed dataset, then optionally
-    --bootstrap-english's fixed seed text repeated up to --bootstrap-repeat
-    times). The train/val split below takes the *positional* last 10% of
-    the token stream as val_data -- so whatever was concatenated last
-    dominates validation. With --bootstrap-english (on by default for
-    every training task the web UI creates), that's ~1.8M characters of
-    the same ~9KB block repeated 200 times: trivially memorizable, giving
-    a deceptively low val_loss/perplexity that reflects memorizing
-    boilerplate, not real generalization -- confirmed as the root cause of
-    a real val_loss (0.024) vs. train_loss (4.19) anomaly, backwards from
-    what those two numbers should ever look like.
+    (streamed dataset, then a second streamed dataset). The train/val split
+    below takes the *positional* last 10% of the token stream as val_data --
+    so whatever was concatenated last dominates validation; if any source
+    is small and repetitive relative to the rest, that split alone can give
+    a deceptively low val_loss/perplexity reflecting memorization of that
+    one source rather than real generalization. (This module used to also
+    unconditionally append a fixed ~9KB "bootstrap English" block repeated
+    200x -- ~1.8M characters of the same passage -- to every training task
+    the web UI created, which was a much worse version of exactly this
+    problem: confirmed live to dominate what small runs actually learned,
+    leaking its own literal sentences into unrelated answers regardless of
+    the prompt. That mechanism has been removed entirely, not just
+    disabled, so nothing can silently reintroduce it.)
 
     get_batch() already samples random block_size windows regardless of
     buffer order, so reordering here doesn't change training semantics at
@@ -510,8 +511,6 @@ def main():
     parser.add_argument("--embed-norm", action="store_true", help="Normalize token embeddings to unit norm after each optimizer step")
     parser.add_argument("--eval-every", type=int, default=200)
     parser.add_argument("--eval-iters", type=int, default=20)
-    parser.add_argument("--bootstrap-english", action="store_true")
-    parser.add_argument("--bootstrap-repeat", type=int, default=200)
     parser.add_argument("--max-train-chars", type=int, default=0)
     parser.add_argument("--torch-threads", type=int, default=0)
     parser.add_argument("--seed", type=int, default=1337)
@@ -686,8 +685,6 @@ def main():
         text = load_text(args.data)
     else:
         raise ValueError("Either --data or --stream-dataset must be provided.")
-    if args.bootstrap_english:
-        text = text + "\n\n" + ((ENGLISH_BOOTSTRAP_TEXT + "\n") * args.bootstrap_repeat)
     if args.max_train_chars > 0:
         text = text[: args.max_train_chars]
 
@@ -874,9 +871,8 @@ def main():
 
     # See shuffle_in_chunks()'s docstring: without this, the positional
     # "last 10%" split below is dominated by whatever was concatenated
-    # last (commonly --bootstrap-english's repeated boilerplate), giving a
-    # val_loss that reflects memorizing that block rather than real
-    # generalization.
+    # last, giving a val_loss that reflects memorizing that source rather
+    # than real generalization.
     encoded = shuffle_in_chunks(encoded, chunk_size=max(cfg.block_size * 4, 1024), seed=int(args.seed))
 
     n = int(0.9 * len(encoded))

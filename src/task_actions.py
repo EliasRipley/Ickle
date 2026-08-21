@@ -1793,7 +1793,6 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
     cpu_pct = int(resource_budget.get("cpu_percent", DEFAULT_CPU_PCT) if isinstance(resource_budget, dict) else DEFAULT_CPU_PCT)
     ram_pct = int(resource_budget.get("ram_percent", DEFAULT_RAM_PCT) if isinstance(resource_budget, dict) else DEFAULT_RAM_PCT)
     gpu_pct = int(resource_budget.get("gpu_percent", DEFAULT_GPU_PCT) if isinstance(resource_budget, dict) else DEFAULT_GPU_PCT)
-    bootstrap = bool(payload.get("bootstrap_english", True))
     checkpoint_every_steps = int(payload.get("checkpoint_every_steps", 40))
     eval_every = max(0, int(payload.get("eval_every", 0)))
     eval_iters = max(0, int(payload.get("eval_iters", 0)))
@@ -1887,8 +1886,6 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
         cmd.extend(["--tokenizer", tokenizer_kind])
         if tokenizer_kind == "sentencepiece" and spm_vocab_size > 0:
             cmd.extend(["--spm-vocab-size", str(spm_vocab_size)])
-    if bootstrap:
-        cmd.append("--bootstrap-english")
     if checkpoint_every_steps > 0:
         cmd.extend(["--checkpoint-every", str(checkpoint_every_steps)])
     if eval_every > 0:
@@ -2828,7 +2825,6 @@ def run_train_from_teacher_task(
         "init_model": baseline_model,
         "resume_if_possible": True,
         "checkpoint_path": checkpoint_path,
-        "bootstrap_english": True,
     }, progress)
 
     progress("Evaluating teacher-trained model")
@@ -2965,7 +2961,6 @@ def infer_task_from_instruction(instruction: str) -> dict[str, Any] | None:
                 "data_path": "data/ickle_clean_corpus.txt",
                 "out_model": "models/ickle_clean.pt",
                 "steps": 1200,
-                "bootstrap_english": True,
             },
         }
 

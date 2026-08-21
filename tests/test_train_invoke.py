@@ -76,12 +76,5 @@ class BuildTrainCommandTests(unittest.TestCase):
             self.assertNotIn("--resume-from-checkpoint", cmd)
             self.assertIn("--init-model", cmd)
 
-    def test_bootstrap_english_flag(self):
-        cmd = build_train_command(
-            data_path="corpus.txt", out_model="out.pt", steps=100, bootstrap_english=True,
-        )
-        self.assertIn("--bootstrap-english", cmd)
-
-
 if __name__ == "__main__":
     unittest.main()
