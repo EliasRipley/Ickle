@@ -1,4 +1,6 @@
 import io
+import threading
+import time
 import unittest
 from unittest import mock
 from urllib.error import HTTPError
@@ -8,10 +10,59 @@ from src.task_actions import (
     _detect_no_steps_executed,
     _looks_useful_fact,
     _request_json,
+    _start_lease_heartbeat,
     _wiki_url_from_title,
     infer_task_from_instruction,
     run_task,
 )
+
+
+class LeaseHeartbeatTests(unittest.TestCase):
+    """Regression coverage for a real live incident: a training task streaming
+    a large remote dataset produced no "significant" log line (and therefore
+    no task-queue lease renewal) for longer than WORKER_LEASE_SECONDS while
+    genuinely still working, which would falsely mark it "failed: worker
+    lease expired" on the next server restart."""
+
+    def test_calls_progress_repeatedly_without_any_subprocess_output(self):
+        calls: list[str] = []
+        lock = threading.Lock()
+
+        def progress(msg: str):
+            with lock:
+                calls.append(msg)
+
+        stop_event = _start_lease_heartbeat(progress, lambda: "still running", interval_seconds=0.02)
+        try:
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                with lock:
+                    if len(calls) >= 3:
+                        break
+                time.sleep(0.01)
+        finally:
+            stop_event.set()
+
+        with lock:
+            self.assertGreaterEqual(len(calls), 3)
+            self.assertTrue(all(c == "still running" for c in calls))
+
+    def test_stops_promptly_once_stop_event_is_set(self):
+        calls: list[str] = []
+        stop_event = _start_lease_heartbeat(progress=calls.append, status_fn=lambda: "x", interval_seconds=0.02)
+        time.sleep(0.05)
+        stop_event.set()
+        count_at_stop = len(calls)
+        time.sleep(0.1)
+        self.assertEqual(len(calls), count_at_stop)
+
+    def test_a_raising_progress_callback_stops_the_heartbeat_instead_of_crashing(self):
+        def progress(_msg: str):
+            raise RuntimeError("cancelled")
+
+        stop_event = _start_lease_heartbeat(progress, lambda: "x", interval_seconds=0.02)
+        time.sleep(0.1)
+        stop_event.set()  # no exception should have propagated out of the background thread
 
 
 class DetectNoStepsExecutedTests(unittest.TestCase):

@@ -7,6 +7,7 @@ import re
 import signal
 import shutil
 import subprocess
+import threading
 import time
 import unicodedata
 from datetime import datetime, timezone
@@ -39,6 +40,7 @@ from src.ilm_memory import get_memory
 from src.model_accumulate import Accumulator
 from src.resource_defaults import DEFAULT_CPU_PCT, DEFAULT_GPU_PCT, DEFAULT_RAM_PCT
 from src.runtime_flags import RuntimeFlagsStore
+from src.task_queue import WORKER_LEASE_SECONDS
 from src.training_control import (
     clear_training_stop_request,
     get_training_stop_request_path,
@@ -131,6 +133,41 @@ INFER_TOPIC_TRIM_PATTERNS = (
     r"\bfor\s+me\b$",
     r"\bplease\b$",
 )
+
+
+_LEASE_HEARTBEAT_INTERVAL_SECONDS = max(30, int(WORKER_LEASE_SECONDS * 0.4))
+
+
+def _start_lease_heartbeat(
+    progress: ProgressCb,
+    status_fn: Callable[[], str],
+    interval_seconds: float = _LEASE_HEARTBEAT_INTERVAL_SECONDS,
+) -> threading.Event:
+    """Call `progress` on a fixed wall-clock interval, independent of whether
+    the subprocess being monitored has printed anything "significant" lately.
+
+    run_train_model_task/_run_lora_train_task only forward select subprocess
+    log lines to `progress`, and the task queue's worker lease only renews
+    when `progress` fires -- so a long silent phase in the subprocess (e.g.
+    streaming and shuffling a large remote dataset before the first
+    checkpoint) can let WORKER_LEASE_SECONDS elapse with the task still
+    genuinely running. If the control server restarts during that window,
+    the still-alive, still-working task gets marked "failed: worker lease
+    expired" -- indistinguishable from a real crash -- purely because
+    nothing renewed its lease recently. This heartbeat keeps the lease fresh
+    the whole time the subprocess is up, whether or not it's talking.
+    """
+    stop_event = threading.Event()
+
+    def _loop():
+        while not stop_event.wait(interval_seconds):
+            try:
+                progress(status_fn())
+            except Exception:
+                return
+
+    threading.Thread(target=_loop, daemon=True).start()
+    return stop_event
 
 
 def _stop_process(proc: subprocess.Popen[str]):
@@ -1557,14 +1594,21 @@ def run_lora_train_task(payload: dict[str, Any], progress: ProgressCb) -> dict[s
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     tail: list[str] = []
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            tail.append(line)
-            if len(tail) > 120:
-                tail = tail[-120:]
-            progress(line[:400])
-    proc.wait()
+    heartbeat_stop = _start_lease_heartbeat(
+        progress,
+        lambda: f"LoRA training running (last: {tail[-1][:200]})" if tail else "LoRA training running (preparing data)...",
+    )
+    try:
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                tail.append(line)
+                if len(tail) > 120:
+                    tail = tail[-120:]
+                progress(line[:400])
+        proc.wait()
+    finally:
+        heartbeat_stop.set()
     if proc.returncode != 0:
         excerpt = "\n".join(tail[-20:])
         raise RuntimeError(f"LoRA training failed (exit {proc.returncode}).\n{excerpt}")
@@ -1975,6 +2019,10 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
     tail: list[str] = []
     graceful_stop_requested = False
     assert proc.stdout is not None
+    heartbeat_stop = _start_lease_heartbeat(
+        progress,
+        lambda: f"Training running (last: {tail[-1][:200]})" if tail else "Training running (preparing data)...",
+    )
     try:
         for line in proc.stdout:
             if (not graceful_stop_requested) and stop_request_path.exists():
@@ -2003,6 +2051,7 @@ def run_train_model_task(payload: dict[str, Any], progress: ProgressCb) -> dict[
         _stop_process(proc)
         raise
     finally:
+        heartbeat_stop.set()
         proc.stdout.close()
         clear_training_stop_request(stop_request_path)
 
